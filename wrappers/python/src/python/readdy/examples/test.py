@@ -15,3 +15,4 @@ if __name__ == '__main__':
     graph.add_edge(0, 1)
     graph.add_edge(1, 2)
     sim.run(5, .1)
+
