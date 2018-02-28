@@ -36,6 +36,10 @@
 #include <hilbert.h>
 #include <readdy/kernel/cpu/pool.h>
 #include "DataContainer.h"
+#include "readdy/model/RandomProvider.h"
+
+
+namespace rnd = readdy::model::rnd;
 
 namespace readdy {
 namespace kernel {
@@ -130,6 +134,7 @@ public:
         entry.pos += delta;
         _context.get().fixPositionFun()(entry.pos);
     };
+
 
     void hilbertSort(scalar gridWidth) {
         if(!empty()) {

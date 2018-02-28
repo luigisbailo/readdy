@@ -62,6 +62,10 @@ std::unique_ptr<readdy::model::actions::CalculateForces> SCPUActionFactory::calc
     return {std::make_unique<SCPUCalculateForces>(kernel)};
 }
 
+std::unique_ptr<readdy::model::actions::Burst> SCPUActionFactory::burst() const {
+    throw std::runtime_error("not implemented");
+}
+
 std::unique_ptr<readdy::model::actions::UpdateNeighborList>
 SCPUActionFactory::updateNeighborList(readdy::model::actions::UpdateNeighborList::Operation operation,
                                       scalar skinSize) const {

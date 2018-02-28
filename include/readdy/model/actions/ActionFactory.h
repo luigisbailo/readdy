@@ -85,6 +85,8 @@ public:
 
     virtual std::unique_ptr<CalculateForces> calculateForces() const = 0;
 
+    virtual std::unique_ptr<Burst> burst() const = 0;
+
     virtual std::unique_ptr<UpdateNeighborList> updateNeighborList(UpdateNeighborList::Operation operation,
                                                                    scalar skinSize) const = 0;
 

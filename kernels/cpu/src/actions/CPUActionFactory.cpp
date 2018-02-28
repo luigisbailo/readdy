@@ -59,6 +59,10 @@ std::unique_ptr<model::actions::CalculateForces> CPUActionFactory::calculateForc
     return {std::make_unique<CPUCalculateForces>(kernel)};
 }
 
+std::unique_ptr<readdy::model::actions::Burst> CPUActionFactory::burst() const {
+    throw std::runtime_error("not implemented");
+}
+
 std::unique_ptr<model::actions::UpdateNeighborList>
 CPUActionFactory::updateNeighborList(model::actions::UpdateNeighborList::Operation operation, scalar skinSize) const {
     return {std::make_unique<CPUUpdateNeighborList>(kernel, operation, skinSize)};

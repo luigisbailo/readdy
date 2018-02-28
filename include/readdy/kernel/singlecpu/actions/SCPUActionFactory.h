@@ -49,6 +49,8 @@ public:
 
     std::unique_ptr<readdy::model::actions::CalculateForces> calculateForces() const override;
 
+    std::unique_ptr<readdy::model::actions::Burst> burst() const override;
+
     std::unique_ptr<readdy::model::actions::UpdateNeighborList>
     updateNeighborList(readdy::model::actions::UpdateNeighborList::Operation operation, scalar skinSize) const override;
 

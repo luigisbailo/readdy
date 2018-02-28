@@ -41,27 +41,40 @@ TEST(SingleCPUTestDiffusion, SanityTest) {
     std::cout << std::endl << std::endl << std::endl;
 
     readdy::Simulation simulation;
-    simulation.setKernel("SingleCPU");
-    unsigned int n_particles = 10;
+    simulation.setKernel("MDGFRD");
+    unsigned int n_particles = 3;
     simulation.setBoxSize(10,10,10);
-    readdy::scalar diffusionConstant = 1;
+    readdy::scalar diffusionConstant = 0.01;
     simulation.registerParticleType("type", diffusionConstant);
     for (auto _ = 0; _ < n_particles; ++_) {
         simulation.addParticle("type", 0, 0, 0);
     }
     readdy::scalar timestep = 1;
+    readdy::scalar n_steps = 5;
 
-    int n_callbacks = 0;
-    simulation.registerObservable(simulation.observe().positions(1),
-                                  [&n_callbacks](const readdy::model::observables::Positions::result_type &result) {
-                                      ++n_callbacks;
-                                      EXPECT_EQ(10, result.size());
-                                  });
-    simulation.run(100, timestep);
-    EXPECT_EQ(101, n_callbacks);
+    std::cout << "hello world!" << std::endl;
 
-    std::cout << "hello world" << std::endl;
+//    int n_callbacks = 0;
+//    simulation.registerObservable(simulation.observe().positions(1),
+//                                  [&n_callbacks](const readdy::model::observables::Positions::result_type &result) {
+//                                      ++n_callbacks;
+//                                      EXPECT_EQ(10, result.size());
+//                                  });
+    simulation.run(n_steps, timestep);
+//    EXPECT_EQ(101, n_callbacks);
 
+    std::cout << simulation.getKBT() << std::endl;
+    std::cout << simulation.getBoxSize() << std::endl;
+    std::vector<readdy::Vec3 > Vpos = simulation.getAllParticlePositions();
+
+    for (int count=0; count<n_particles; count++){
+        std::cout << Vpos[count] << std::endl;
+    }
+
+//    auto conf = simulation.runScheme();
+//    conf.withIntegrator("MFPIntegrator");
+//    auto scheme = conf.configure(0.1);
+//    scheme->run(1000);
 
     std::cout << std::endl << std::endl << std::endl;
 

@@ -33,7 +33,7 @@
 
 #include <readdy/common/thread/scoped_async.h>
 
-#include <readdy/kernel/cpu/observables/CPUObservables.h>
+#include <readdy/kernel/cpu/observables/MDGFRDObservables.h>
 #include <readdy/kernel/cpu/CPUKernel.h>
 
 namespace readdy {

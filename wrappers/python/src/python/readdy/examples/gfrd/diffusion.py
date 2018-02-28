@@ -24,9 +24,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-print('do')
 import readdy
-print('do')
 
 
 def average_across_first_axis(values):
@@ -40,29 +38,22 @@ def average_across_first_axis(values):
 
 if __name__ == '__main__':
     system = readdy.ReactionDiffusionSystem(
-        box_size=(10, 10, 10), periodic_boundary_conditions=[False, False, False], unit_system=None)
+    box_size=(100, 100, 100), periodic_boundary_conditions=[True, True, True], unit_system=None)
     system.add_species("A", 1.0)
-    print('do')
 
-    system.potentials.add_box(
-        particle_type="A", force_constant=50., origin=[-4, -4, -4], extent=[8, 8, 8]
-    )
-    print('do')
+    # system.potentials.add_box(
+    #     particle_type="A", force_constant=50., origin=[-4, -4, -4], extent=[8, 8, 8]
+    # )
 
     simulation = system.simulation(kernel="SingleCPU")
-    print('do')
 
     simulation.output_file = "out.h5"
-    print('do2')
 
     simulation.observe.particle_positions(stride=1)
-    print('do2')
-    #simulation.integrator = "EulerBDIntegrator" # GFRD
+    simulation.integrator = "EulerBDIntegrator" # GFRD
     init_pos = np.zeros((400, 3))
-    print('do')
 
     simulation.add_particles("A", init_pos)
-    print('do')
 
     if os.path.exists(simulation.output_file):
         os.remove(simulation.output_file)

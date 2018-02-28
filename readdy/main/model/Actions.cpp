@@ -64,6 +64,8 @@ void AddParticles::perform(const util::PerformanceNode &node) {
 
 CalculateForces::CalculateForces() : Action() {}
 
+Burst::Burst() : Action() {}
+
 top::EvaluateTopologyReactions::EvaluateTopologyReactions(scalar timeStep) : TimeStepDependentAction(timeStep) {}
 
 }

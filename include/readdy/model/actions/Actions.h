@@ -77,6 +77,11 @@ public:
     CalculateForces();
 };
 
+class Burst : public Action {
+public:
+    Burst();
+};
+
 class UpdateNeighborList : public Action {
 public:
     enum Operation {

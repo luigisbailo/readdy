@@ -35,7 +35,7 @@
 
 #include "pool.h"
 #include "CPUStateModel.h"
-#include "observables/CPUObservableFactory.h"
+#include "readdy/kernel/cpu/observables/MDGFRDObservableFactory.h"
 #include "actions/CPUActionFactory.h"
 #include "actions/topologies/CPUTopologyActionFactory.h"
 

@@ -67,6 +67,10 @@ struct Entry {
         return deactivated;
     }
 
+    bool is_onGFpropagation() const {
+        return onGFpropagation;
+    }
+
     const particle_type::pos_type &position() const {
         return pos;
     }
@@ -78,6 +82,8 @@ struct Entry {
     particle_type::id_type id;
     particle_type::type_type type;
     bool deactivated;
+    bool onGFpropagation;
+
 };
 
 class SCPUParticleData {

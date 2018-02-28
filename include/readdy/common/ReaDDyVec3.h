@@ -213,6 +213,15 @@ public:
         };
     };
 
+    void polarTransform(const scalar radius, const scalar rnd1, const scalar rnd2){
+
+        scalar theta = 2 * M_PI * rnd1 ;
+        scalar phi = std::acos( 2*rnd2-1);
+        this->x = radius * cos(theta) * sin(phi);
+        this->y = radius * sin(theta) * sin(phi);
+        this->z = radius * cos(phi);
+    };
+
     scalar norm() const {
         return std::sqrt(normSquared());
     };

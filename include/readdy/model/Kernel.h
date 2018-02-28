@@ -179,7 +179,7 @@ public:
 
     virtual readdy::model::top::TopologyActionFactory *const getTopologyActionFactory() = 0;
 
-    virtual void initialize() {
+    virtual void initialize( ) {
         context().configure();
         log::debug(context().describe());
     };

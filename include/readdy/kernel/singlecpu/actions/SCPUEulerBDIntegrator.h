@@ -88,7 +88,7 @@ private:
         auto& stateModel = kernel->getSCPUKernelStateModel();
         const auto pd = stateModel.getParticleData();
         for(auto& entry : *pd) {
-            if(!entry.is_deactivated()) {
+            if(!entry.is_deactivated() && !entry.is_onGFpropagation()) {
                 const scalar D = context.particle_types().diffusionConstantOf(entry.type);
                 const auto randomDisplacement = std::sqrt(2. * D * timeStep) * (readdy::model::rnd::normal3<readdy::scalar>());
                 entry.pos += randomDisplacement;

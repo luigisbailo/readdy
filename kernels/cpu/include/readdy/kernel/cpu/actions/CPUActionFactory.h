@@ -50,6 +50,8 @@ public:
 
     std::unique_ptr<model::actions::CalculateForces> calculateForces() const override;
 
+    std::unique_ptr<model::actions::Burst> burst() const override;
+
     std::unique_ptr<model::actions::UpdateNeighborList>
     updateNeighborList(model::actions::UpdateNeighborList::Operation operation, scalar skinSize) const override;
 
