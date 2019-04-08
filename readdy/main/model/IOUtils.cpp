@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          * 
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -29,88 +42,147 @@
  * @author clonker
  * @author chrisfroe
  * @date 10.03.17
- * @copyright GNU Lesser General Public License v3.0
+ * @copyright BSD-3
  */
 
+#include <json.hpp>
 #include <readdy/model/IOUtils.h>
-#include <iostream>
+
+using json = nlohmann::json;
 
 namespace readdy {
 namespace model {
 namespace ioutils {
 
-void writeReactionInformation(readdy::io::Group &group, const KernelContext &context) {
-    auto subgroup = group.createGroup("./registered_reactions");
-    // order1
-    const auto &order1_reactions = context.reactions().order1_flat();
-    auto n_reactions = order1_reactions.size();
-    if (n_reactions > 0) {
-        std::vector<ReactionInfo> order1_info;
-        for (const auto &r : order1_reactions) {
-            const auto &reactions_current_type = context.reactions().order1_by_type(r->getEducts()[0]);
-            auto it = std::find_if(reactions_current_type.begin(), reactions_current_type.end(),
-                                   [&r](const reactions::Reaction<1> *x) { return x->getId() == r->getId(); });
-            if (it != reactions_current_type.end()) {
-                std::size_t index = static_cast<std::size_t>(it - reactions_current_type.begin());
-                const std::array<particle_type_type, 2> educts = {r->getEducts()[0], 0};
-                ReactionInfo info{r->getName().c_str(), index, r->getId(), r->getNEducts(), r->getNProducts(),
-                                  r->getRate(), r->getEductDistance(),
-                                  r->getProductDistance(), educts, r->getProducts()};
-                order1_info.push_back(info);
-            }
-        }
-        std::vector<readdy::io::h5::h5_dims> dims = {readdy::io::h5::UNLIMITED_DIMS};
-        std::vector<readdy::io::h5::h5_dims> extent = {n_reactions};
-        auto order1_reaction_dset = subgroup.createDataSet("order1_reactions", extent, dims, ReactionInfoMemoryType(),
-                                                           ReactionInfoFileType(), io::DataSetCompression::none);
-        order1_reaction_dset.append(extent, order1_info.data());
+void writeReactionInformation(h5rd::Group &group, const Context &context) {
+    const auto &reactionRegistry = context.reactions();
+    std::vector<ReactionInfo> reactionInfos;
+    for (const auto &reaction : reactionRegistry.order1Flat()) {
+        const auto &r = reaction;
+        ReactionInfo info{r->name().c_str(), r->id(), r->nEducts(), r->nProducts(),
+                          r->rate(), r->eductDistance(),
+                          r->productDistance(), r->educts(), r->products()};
+        reactionInfos.push_back(info);
     }
-    // order2
-    const auto &order2_reactions = context.reactions().order2_flat();
-    n_reactions = order2_reactions.size();
-    if (n_reactions > 0) {
-        std::vector<ReactionInfo> order2_info;
-        for (const auto &r : order2_reactions) {
-            const auto &reactions_current_type = context.reactions().order2_by_type(r->getEducts()[0],
-                                                                                    r->getEducts()[1]);
-            auto it = std::find_if(reactions_current_type.begin(), reactions_current_type.end(),
-                                   [&r](const reactions::Reaction<2> *x) { return x->getId() == r->getId(); });
-            if (it != reactions_current_type.end()) {
-                std::size_t index = static_cast<std::size_t>(it - reactions_current_type.begin());
-                ReactionInfo info{r->getName().c_str(), index, r->getId(), r->getNEducts(), r->getNProducts(),
-                                  r->getRate(), r->getEductDistance(),
-                                  r->getProductDistance(), r->getEducts(), r->getProducts()};
-                order2_info.push_back(info);
-            }
-        }
-        std::vector<readdy::io::h5::h5_dims> dims = {readdy::io::h5::UNLIMITED_DIMS};
-        std::vector<readdy::io::h5::h5_dims> extent = {n_reactions};
-        auto order2_reaction_dset = subgroup.createDataSet("order2_reactions", extent, dims, ReactionInfoMemoryType(),
-                                                           ReactionInfoFileType(), io::DataSetCompression::none);
-        order2_reaction_dset.append(extent, order2_info.data());
+    for (const auto &reaction : reactionRegistry.order2Flat()) {
+        const auto &r = reaction;
+        ReactionInfo info{r->name().c_str(), r->id(), r->nEducts(), r->nProducts(),
+                          r->rate(), r->eductDistance(),
+                          r->productDistance(), r->educts(), r->products()};
+        reactionInfos.push_back(info);
+    }
+    if(!reactionInfos.empty()) {
+        auto types = getReactionInfoMemoryType(group.parentFile());
+        h5rd::dimensions dims = {h5rd::UNLIMITED_DIMS};
+        h5rd::dimensions extent = {reactionInfos.size()};
+        std::vector<h5rd::Filter*> filters;
+        auto infoDataSet = group.createDataSet("registered_reactions", extent, dims, std::get<0>(types),
+                                               std::get<1>(types), filters);
+        infoDataSet->append(extent, reactionInfos.data());
     }
 }
 
-void writeParticleTypeInformation(readdy::io::Group &group, const KernelContext &context) {
-    const auto &types = context.particle_types().type_mapping();
-    std::vector<ParticleTypeInfo> type_info_vec;
+void writeGeneralContextInformation(h5rd::Group &group, const Context &context) {
+    json j;
+    j["kbt"] = context.kBT();
+    j["box_volume"] = context.boxVolume();
+    j["box_size"] = context.boxSize();
+    j["pbc"] = context.periodicBoundaryConditions();
+    group.write("general", j.dump());
+}
+
+void writeParticleTypeInformation(h5rd::Group &group, const Context &context) {
+    auto h5types = getParticleTypeInfoType(group.parentFile());
+
+    const auto &types = context.particleTypes().typeMapping();
+    std::vector<ParticleTypeInfo> typeInfoVec;
     for (const auto &p_type : types) {
-        ParticleTypeInfo info{p_type.first.c_str(), p_type.second,
-                              context.particle_types().diffusion_constant_of(p_type.first)};
-        type_info_vec.push_back(info);
+        const auto &info = context.particleTypes().infoOf(p_type.second);
+        typeInfoVec.push_back(ParticleTypeInfo{
+                .name = info.name.c_str(),
+                .type_id = info.typeId,
+                .diffusion_constant = info.diffusionConstant,
+                .flavor = [](particle_flavor v) -> const char * {
+                    if (v == particleflavor::NORMAL) return "NORMAL";
+                    if (v == particleflavor::TOPOLOGY) return "TOPOLOGY";
+                    if (v == particleflavor::MEMBRANE) return "MEMBRANE";
+                    return "UNKNOWN";
+                }(info.flavor)
+        });
     }
-    if (!type_info_vec.empty()) {
-        std::vector<readdy::io::h5::h5_dims> dims = {readdy::io::h5::UNLIMITED_DIMS};
-        std::vector<readdy::io::h5::h5_dims> extent = {type_info_vec.size()};
-        auto dset = group.createDataSet("particle_types", extent, dims, ParticleTypeInfoMemoryType(),
-                                        ParticleTypeInfoFileType(), io::DataSetCompression::none);
-        dset.append(extent, type_info_vec.data());
+    if (!typeInfoVec.empty()) {
+        h5rd::dimensions dims = {h5rd::UNLIMITED_DIMS};
+        h5rd::dimensions extent = {typeInfoVec.size()};
+        std::vector<h5rd::Filter*> filters;
+        auto dset = group.createDataSet("particle_types", extent, dims, std::get<0>(h5types),
+                                        std::get<1>(h5types), filters);
+        dset->append(extent, typeInfoVec.data());
     }
 }
 
-void writeSimulationSetup(io::Group &group, const KernelContext &context) {
+void writeTopologyTypeInformation(h5rd::Group &group, const Context &context) {
+    auto h5types = getTopologyTypeInfoType(group.parentFile());
+
+    const auto &types = context.topologyRegistry().types();
+    std::vector<TopologyTypeInfo> infoVec;
+    for (const auto &t : types) {
+        TopologyTypeInfo info{
+            .name = t.name.data(),
+            .type_id = static_cast<std::size_t>(t.type)
+        };
+        infoVec.push_back(info);
+    }
+    if (!infoVec.empty()) {
+        h5rd::dimensions dims = {h5rd::UNLIMITED_DIMS};
+        h5rd::dimensions extent = {infoVec.size()};
+        std::vector<h5rd::Filter*> filters;
+        auto dset = group.createDataSet("topology_types", extent, dims, std::get<0>(h5types), std::get<1>(h5types), {});
+        dset->append(extent, infoVec.data());
+    }
+}
+
+std::tuple<h5rd::NativeCompoundType, h5rd::STDCompoundType> getParticleTypeInfoType(h5rd::Object::ParentFileRef ref) {
+    using namespace h5rd;
+    NativeCompoundType nct = NativeCompoundTypeBuilder(sizeof(ParticleTypeInfo), std::move(ref))
+            .insertString("name", offsetof(ParticleTypeInfo, name))
+            .insertString("flavor", offsetof(ParticleTypeInfo, flavor))
+            .insert<decltype(std::declval<ParticleTypeInfo>().type_id)>("type_id", offsetof(ParticleTypeInfo, type_id))
+            .insert<decltype(std::declval<ParticleTypeInfo>().diffusion_constant)>("diffusion_constant", offsetof(ParticleTypeInfo, diffusion_constant))
+            .build();
+    return std::make_tuple(nct, STDCompoundType(nct));
+};
+
+std::tuple<h5rd::NativeCompoundType, h5rd::STDCompoundType> getTopologyTypeInfoType(h5rd::Object::ParentFileRef ref) {
+    using namespace h5rd;
+    NativeCompoundType nct = NativeCompoundTypeBuilder(sizeof(TopologyTypeInfo), std::move(ref))
+            .insertString("name", offsetof(TopologyTypeInfo, name))
+            .insert<decltype(std::declval<TopologyTypeInfo>().type_id)>("type_id", offsetof(TopologyTypeInfo, type_id))
+            .build();
+    return std::make_tuple(nct, STDCompoundType(nct));
+}
+
+std::tuple<h5rd::NativeCompoundType, h5rd::STDCompoundType> getReactionInfoMemoryType(h5rd::Object::ParentFileRef ref) {
+    using namespace h5rd;
+    NativeCompoundType nct  = NativeCompoundTypeBuilder(sizeof(ReactionInfo), std::move(ref))
+            .insertString("name", offsetof(ReactionInfo, name))
+            .insert<decltype(std::declval<ReactionInfo>().id)>("id", offsetof(ReactionInfo, id))
+            .insert<decltype(std::declval<ReactionInfo>().n_educts)>("n_educts", offsetof(ReactionInfo, n_educts))
+            .insert<decltype(std::declval<ReactionInfo>().n_products)>("n_products", offsetof(ReactionInfo, n_products))
+            .insert<decltype(std::declval<ReactionInfo>().rate)>("rate", offsetof(ReactionInfo, rate))
+            .insert<decltype(std::declval<ReactionInfo>().educt_distance)>("educt_distance", offsetof(ReactionInfo, educt_distance))
+            .insert<decltype(std::declval<ReactionInfo>().product_distance)>("product_distance", offsetof(ReactionInfo, product_distance))
+            .insertArray<ParticleTypeId, 2>("educt_types", offsetof(ReactionInfo, educt_types))
+            .insertArray<ParticleTypeId, 2>("product_types", offsetof(ReactionInfo, product_types))
+            .build();
+    STDCompoundType sct (nct);
+    return std::make_tuple(nct, sct);
+};
+
+void writeSimulationSetup(h5rd::Group &group, const Context &context) {
     writeParticleTypeInformation(group, context);
+    writeTopologyTypeInformation(group, context);
     writeReactionInformation(group, context);
+    writeGeneralContextInformation(group, context);
 }
 
 }

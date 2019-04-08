@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -26,95 +39,177 @@
  * @file CPUStateModel.h
  * @brief << brief description >>
  * @author clonker
- * @date 13.07.16
+ * @date 12/11/17
  */
+
+
 
 #pragma once
 
-#include <readdy/model/KernelStateModel.h>
-#include <readdy/model/KernelContext.h>
-#include <readdy/kernel/cpu/model/ParticleIndexPair.h>
+#include <readdy/model/StateModel.h>
+
+
+#include <readdy/model/StateModel.h>
+#include <readdy/model/Context.h>
 #include <readdy/common/thread/Config.h>
-#include <readdy/kernel/cpu/model/CPUParticleData.h>
 #include <readdy/model/reactions/ReactionRecord.h>
 #include <readdy/model/observables/ReactionCounts.h>
-#include <readdy/kernel/cpu/util/config.h>
 #include <readdy/common/index_persistent_vector.h>
+#include <readdy/api/KernelConfiguration.h>
+#include <readdy/kernel/cpu/data/DefaultDataContainer.h>
+#include <readdy/kernel/cpu/nl/CellLinkedList.h>
+#include <readdy/kernel/cpu/nl/ContiguousCellLinkedList.h>
+#include <readdy/kernel/cpu/data/ObservableData.h>
 
 namespace readdy {
 namespace kernel {
 namespace cpu {
-class CPUStateModel : public readdy::model::KernelStateModel {
+class CPUStateModel : public readdy::model::StateModel {
 
 public:
 
-    using data_t = readdy::kernel::cpu::model::CPUParticleData;
-    using particle_t = readdy::model::Particle;
-    using reaction_counts_order1_map = readdy::model::observables::ReactionCounts::reaction_counts_order1_map;
-    using reaction_counts_order2_map = readdy::model::observables::ReactionCounts::reaction_counts_order2_map;
+    using data_type = readdy::kernel::cpu::data::DefaultDataContainer;
+    using particle_type = readdy::model::Particle;
+    using reaction_counts_map = readdy::model::reactions::reaction_counts_map;
 
     using topology = readdy::model::top::GraphTopology;
     using topology_ref = std::unique_ptr<topology>;
     using topologies_vec = readdy::util::index_persistent_vector<topology_ref>;
+    using neighbor_list = nl::CompactCellLinkedList;
 
-    CPUStateModel(readdy::model::KernelContext* context, readdy::util::thread::Config const* config,
+    CPUStateModel(data_type &data, const readdy::model::Context &context, thread_pool &pool,
                   readdy::model::top::TopologyActionFactory const* taf);
 
-    ~CPUStateModel() override;
+    ~CPUStateModel() override = default;
 
     CPUStateModel(const CPUStateModel&) = delete;
     CPUStateModel& operator=(const CPUStateModel&) = delete;
     CPUStateModel(CPUStateModel&&) = delete;
     CPUStateModel& operator=(CPUStateModel&&) = delete;
 
-    const std::vector<readdy::model::Vec3> getParticlePositions() const override;
+    void configure(const readdy::conf::cpu::Configuration &configuration) {
+        const auto& nl = configuration.neighborList;
+        _neighborListCellRadius = nl.cll_radius;
+    }
 
-    const std::vector<particle_t> getParticles() const override;
+    const std::vector<Vec3> getParticlePositions() const override;
 
-    void updateNeighborList(scalar skin) override;
+    const std::vector<particle_type> getParticles() const override;
 
-    void calculateForces() override;
+    void initializeNeighborList(scalar interactionDistance) override {
+        _neighborList->setUp(interactionDistance, _neighborListCellRadius);
+        _neighborList->update();
+    };
 
-    void addParticle(const particle_t &p) override;
+    void updateNeighborList() override {
+        _neighborList->update();
+    };
 
-    void addParticles(const std::vector<particle_t> &p) override;
+    void addParticle(const particle_type &p) override {
+        getParticleData()->addParticle(p);
+    };
 
-    void removeParticle(const particle_t &p) override;
+    void addParticles(const std::vector<particle_type> &p) override {
+        getParticleData()->addParticles(p);
+    };
 
-    void removeAllParticles() override;
+    void removeParticle(const particle_type &p) override {
+        getParticleData()->removeParticle(p);
+    };
 
-    readdy::scalar getEnergy() const override;
+    void removeAllParticles() override {
+        getParticleData()->clear();
+    };
 
-    data_t const *const getParticleData() const;
+    data::ObservableData &observableData() {
+        return _observableData;
+    }
+    
+    const data::ObservableData &observableData() const {
+        return _observableData;
+    }
+    
+    Matrix33 &virial() {
+        return _observableData.virial;
+    }
+    
+    const Matrix33 &virial() const {
+        return _observableData.virial;
+    }
+    
+    scalar energy() const override {
+        return _observableData.energy;
+    };
 
-    data_t *const getParticleData();
+    scalar &energy() override {
+        return _observableData.energy;
+    };
 
-    neighbor_list const *const getNeighborList() const;
+    scalar time() const override {
+        return _observableData.time;
+    };
 
-    neighbor_list *const getNeighborList();
+    scalar &time() override {
+        return _observableData.time;
+    };
 
-    void expected_n_particles(std::size_t n) override;
+    data_type const *const getParticleData() const {
+        return &_data.get();
+    };
 
-    void clearNeighborList() override;
+    data_type *const getParticleData() {
+        return &_data.get();
+    };
+
+    neighbor_list const *const getNeighborList() const {
+        return _neighborList.get();
+
+    };
+
+    neighbor_list *const getNeighborList() {
+        return _neighborList.get();
+    };
+
+    void clearNeighborList() override {
+        _neighborList->clear();
+    };
 
     readdy::model::top::GraphTopology *const
-    addTopology(const std::vector<readdy::model::TopologyParticle> &particles) override;
+    addTopology(TopologyTypeId type, const std::vector<readdy::model::TopologyParticle> &particles) override;
 
-    std::vector<readdy::model::reactions::ReactionRecord> &reactionRecords();
+    std::vector<readdy::model::reactions::ReactionRecord> &reactionRecords() {
+        return _observableData.reactionRecords;
+    };
 
-    const std::vector<readdy::model::reactions::ReactionRecord> &reactionRecords() const;
+    const std::vector<readdy::model::reactions::ReactionRecord> &reactionRecords() const {
+        return _observableData.reactionRecords;
+    };
 
-    const std::pair<reaction_counts_order1_map, reaction_counts_order2_map> &reactionCounts() const;
+    const reaction_counts_map & reactionCounts() const {
+        return _observableData.reactionCounts;
+    };
 
-    std::pair<reaction_counts_order1_map, reaction_counts_order2_map> &reactionCounts();
+    reaction_counts_map &reactionCounts() {
+        return _observableData.reactionCounts;
+    };
 
-    particle_t getParticleForIndex(std::size_t index) const override;
+    void resetReactionCounts();
 
-    particle_type_type getParticleType(std::size_t index) const override;
+    particle_type getParticleForIndex(std::size_t index) const override {
+        return _data.get().getParticle(index);
+    };
 
-    const topologies_vec &topologies() const;
+    ParticleTypeId getParticleType(std::size_t index) const override {
+        return _data.get().entry_at(index).type;
+    };
 
-    topologies_vec &topologies();
+    const topologies_vec &topologies() const {
+        return _topologies;
+    };
+
+    topologies_vec &topologies() {
+        return _topologies;
+    };
 
     void insert_topology(topology&& top);
 
@@ -124,10 +219,21 @@ public:
 
     readdy::model::top::GraphTopology *getTopologyForParticle(readdy::model::top::Topology::particle_index particle) override;
 
+    void toDenseParticleIndices(std::vector<std::size_t>::iterator begin,
+                                std::vector<std::size_t>::iterator end) const override;
+
+    void clear() override;
+
 private:
-    struct Impl;
-    std::unique_ptr<Impl> pimpl;
-    readdy::util::thread::Config const *const config;
+    data::ObservableData _observableData;
+    std::reference_wrapper<thread_pool> _pool;
+    std::reference_wrapper<const readdy::model::Context> _context;
+    std::reference_wrapper<data_type> _data;
+    std::unique_ptr<neighbor_list> _neighborList;
+    neighbor_list::cell_radius_type _neighborListCellRadius {1};
+    std::unique_ptr<readdy::signals::scoped_connection> _reorderConnection;
+    std::reference_wrapper<const readdy::model::top::TopologyActionFactory> _topologyActionFactory;
+    topologies_vec _topologies{};
 };
 }
 }

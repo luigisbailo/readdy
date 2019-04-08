@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -43,17 +56,17 @@
 
 #pragma once
 
+#include <memory>
+
+#include <h5rd/h5rd.h>
+
 #include <readdy/common/common.h>
-#include <readdy/common/make_unique.h>
 #include <readdy/common/signals.h>
 #include <readdy/common/logging.h>
 #include <readdy/common/tuple_utils.h>
+#include <readdy/common/ReaDDyVec3.h>
 
 NAMESPACE_BEGIN(readdy)
-
-NAMESPACE_BEGIN(io)
-class File;
-NAMESPACE_END(io)
 
 NAMESPACE_BEGIN(model)
 class Kernel;
@@ -73,6 +86,10 @@ using observable_type = signal_type::slot_type;
  */
 class ObservableBase {
 public:
+    /**
+     * The type of the stride
+     */
+    using stride_type = readdy::stride_type;
 
     /**
      * Constructs an object of type ObservableBase. Needs a kernel and a stride, which is defaulted to 1, i.e.,
@@ -80,22 +97,21 @@ public:
      * @param kernel the kernel
      * @param stride the stride
      */
-    explicit ObservableBase(readdy::model::Kernel *const kernel, unsigned int stride = 1)
-            : stride(stride), kernel(kernel) {};
+    explicit ObservableBase(Kernel* kernel, stride_type stride = 1) : _stride(stride), kernel(kernel) {};
 
     /**
      * The stride at which the observable gets evaluated. Can be 0, which is equivalent to stride = 1.
      * @return the stride
      */
-    unsigned int getStride() const {
-        return stride;
+    stride_type stride() const {
+        return _stride;
     }
 
     /**
      * The observable's current time step, i.e., the time step when it was last evaluated.
      * @return the observable's current time step
      */
-    const time_step_type &getCurrentTimeStep() const {
+    const time_step_type &currentTimeStep() const {
         return t_current;
     }
 
@@ -128,7 +144,7 @@ public:
      * @return true, if we haven't been evaluated in the current time step yet and stride is 0 or a divisor of t
      */
     virtual bool shouldExecuteCallback(time_step_type t) const {
-        return (t_current != t || firstCall) && (stride == 0 || t % stride == 0);
+        return (t_current != t || firstCall) && (_stride == 0 || t % _stride == 0);
     }
 
     /**
@@ -144,7 +160,7 @@ public:
      * @param dataSetName the name of the data set, automatically placed under the group /readdy/observables
      * @param flushStride performance parameter, determining the hdf5-internal chunk size
      */
-    void enableWriteToFile(io::File &file, const std::string &dataSetName, unsigned int flushStride) {
+    void enableWriteToFile(File &file, const std::string &dataSetName, stride_type flushStride) {
         writeToFile = true;
         initializeDataSet(file, dataSetName, flushStride);
     }
@@ -154,6 +170,8 @@ public:
      */
     virtual void flush() = 0;
 
+    virtual std::string type() const = 0;
+
 protected:
     friend class readdy::model::Kernel;
 
@@ -162,7 +180,7 @@ protected:
      * modify the simulation setup to the observable's needs.
      * @param kernel the kernel
      */
-    virtual void initialize(Kernel *const kernel) {};
+    virtual void initialize(Kernel * kernel) {};
 
     /**
      * Method that will be called once, if enableWriteToFile() is called and should create a readdy::io::DataSet that
@@ -170,7 +188,7 @@ protected:
      * @param dataSetName the name of the data set to be created
      * @param flushStride the flush stride, more specifically the internal hdf5 chunk size
      */
-    virtual void initializeDataSet(io::File &, const std::string &dataSetName, unsigned int flushStride) = 0;
+    virtual void initializeDataSet(File &, const std::string &dataSetName, stride_type flushStride) = 0;
 
     /**
      * Called whenever result should be written into the file
@@ -180,11 +198,11 @@ protected:
     /**
      * Stride at which the observable gets evaluated
      */
-    unsigned int stride;
+    stride_type _stride;
     /**
      * The kernel which created this observable
      */
-    readdy::model::Kernel *const kernel;
+    readdy::model::Kernel * kernel;
     /**
      * The current time step of the observable
      */
@@ -223,7 +241,7 @@ public:
      * @param kernel the kernel
      * @param stride the stride
      */
-    Observable(Kernel *const kernel, unsigned int stride)
+    Observable(Kernel * kernel, stride_type stride)
             : ObservableBase(kernel, stride), result() {
     }
 
@@ -235,14 +253,14 @@ public:
         return result;
     }
 
-    /**
-     * Set a callback to this observable, which will be invoked every time the observable is evaluated.
-     * @param callbackFun the callback function
-     */
-    void setCallback(const callback_function &callbackFun) {
-        Observable::externalCallback = std::move(callbackFun);
+    callback_function &callback() {
+        return externalCallback;
     }
-
+    
+    const callback_function &callback() const {
+        return externalCallback;
+    }
+    
     /**
      * Function that will evaluate the observable and trigger a callback if ObservableBase#shouldExecuteCallback()
      * is true.
@@ -277,13 +295,19 @@ protected:
 template<typename RESULT, typename... PARENT_OBS>
 class Combiner : public Observable<RESULT> {
 public:
+
+    /**
+     * type of the stride
+     */
+    using stride_type = typename Observable<RESULT>::stride_type;
+
     /**
      * Constructs a combiner observable.
      * @param kernel the kernel it belongs to
      * @param stride a stride
      * @param parents the parent observables
      */
-    Combiner(Kernel *const kernel, unsigned int stride, PARENT_OBS *... parents)
+    Combiner(Kernel* kernel, stride_type stride, PARENT_OBS *... parents)
             : Observable<RESULT>(kernel, stride), parentObservables(std::forward<PARENT_OBS *>(parents)...) {}
 
     /**
@@ -312,7 +336,7 @@ protected:
      * @param dataSetName data set name
      * @param flushStride flush stride
      */
-    void initializeDataSet(io::File &file, const std::string &dataSetName, unsigned int flushStride) override {
+    void initializeDataSet(File &file, const std::string &dataSetName, stride_type flushStride) override {
         throw std::runtime_error("not supported for combiner observables");
     }
 

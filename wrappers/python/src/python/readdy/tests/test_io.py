@@ -1,23 +1,36 @@
 # coding=utf-8
 
-# Copyright © 2016 Computational Molecular Biology Group,
+# Copyright © 2018 Computational Molecular Biology Group,
 #                  Freie Universität Berlin (GER)
 #
-# This file is part of ReaDDy.
+# Redistribution and use in source and binary forms, with or
+# without modification, are permitted provided that the
+# following conditions are met:
+#  1. Redistributions of source code must retain the above
+#     copyright notice, this list of conditions and the
+#     following disclaimer.
+#  2. Redistributions in binary form must reproduce the above
+#     copyright notice, this list of conditions and the following
+#     disclaimer in the documentation and/or other materials
+#     provided with the distribution.
+#  3. Neither the name of the copyright holder nor the names of
+#     its contributors may be used to endorse or promote products
+#     derived from this software without specific
+#     prior written permission.
 #
-# ReaDDy is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of
-# the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General
-# Public License along with this program. If not, see
-# <http://www.gnu.org/licenses/>.
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+# CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+# INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+# STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
 @author: clonker
@@ -32,11 +45,13 @@ import numpy as np
 import readdy._internal.readdybinding.common as common
 import readdy._internal.readdybinding.common.io as io
 from readdy._internal.readdybinding.api import Simulation
+
+from readdy.util.testing_utils import ReaDDyTestCase
 from readdy.util.trajectory_utils import TrajectoryReader
 from contextlib import closing
 
 
-class TestSchemeApi(unittest.TestCase):
+class TestSchemeApi(ReaDDyTestCase):
     @classmethod
     def setUpClass(cls):
         cls.dir = tempfile.mkdtemp("test-io")
@@ -46,22 +61,22 @@ class TestSchemeApi(unittest.TestCase):
         shutil.rmtree(cls.dir, ignore_errors=True)
 
     def test_write_trajectory(self):
-        common.set_logging_level("error")
         traj_fname = os.path.join(self.dir, "traj.h5")
-        simulation = Simulation()
-        simulation.set_kernel("SingleCPU")
-        simulation.box_size = common.Vec(5,5,5)
-        simulation.register_particle_type("A", 0.0, 0.0)
-        simulation.register_reaction_conversion("A->A", "A", "A", 1.)
+        simulation = Simulation("SingleCPU")
+        simulation.context.box_size = [5., 5., 5.]
+        simulation.context.particle_types.add("A", 0.0)
+        simulation.context.reactions.add_conversion("A->A", "A", "A", 1.)
 
         def callback(_):
             simulation.add_particle("A", common.Vec(0, 0, 0))
 
         simulation.register_observable_n_particles(1, ["A"], callback)
         traj_handle = simulation.register_observable_trajectory(0)
-        with closing(io.File(traj_fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
+        with closing(io.File.create(traj_fname, io.FileFlag.OVERWRITE)) as f:
             traj_handle.enable_write_to_file(f, u"", 3)
-            simulation.run_scheme_readdy(True).write_config_to_file(f).configure(1).run(20)
+            loop = simulation.create_loop(1.)
+            loop.write_config_to_file(f)
+            loop.run(20)
 
         r = TrajectoryReader(traj_fname)
         trajectory_items = r[:]
@@ -74,42 +89,32 @@ class TestSchemeApi(unittest.TestCase):
         with h5py.File(traj_fname) as f:
             np.testing.assert_equal("A", f["readdy/config/particle_types"][0]["name"])
 
-        common.set_logging_level("debug")
-
     def test_write_flat_trajectory(self):
-        common.set_logging_level("error")
-        traj_fname = os.path.join(self.dir, "flat_traj.h5")
-        simulation = Simulation()
-        simulation.set_kernel("SingleCPU")
-        simulation.box_size = common.Vec(5,5,5)
-        simulation.register_particle_type("A", 0.0, 0.0)
+        import readdy
+        rds = readdy.ReactionDiffusionSystem([5, 5, 5])
+        rds.add_species("A", 0.)
+        simulation = rds.simulation()
+        simulation.output_file = os.path.join(self.dir, "flat_traj.h5")
 
         def callback(_):
             simulation.add_particle("A", common.Vec(0, 0, 0))
+        simulation.observe.number_of_particles(1, ["A"], callback=callback)
+        simulation.record_trajectory(1)
+        simulation.run(20, 1, show_summary=False)
 
-        simulation.register_observable_n_particles(1, ["A"], callback)
-        traj_handle = simulation.register_observable_flat_trajectory(1)
-        with closing(io.File(traj_fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
-            traj_handle.enable_write_to_file(f, u"", int(3))
-            simulation.run_scheme_readdy(True).configure(1).run(20)
-
-        r = TrajectoryReader(traj_fname)
+        r = TrajectoryReader(simulation.output_file)
         trajectory_items = r[:]
         for idx, items in enumerate(trajectory_items):
             np.testing.assert_equal(len(items), idx+1)
             for item in items:
                 np.testing.assert_equal(item.t, idx)
                 np.testing.assert_equal(item.position, np.array([.0, .0, .0]))
-        common.set_logging_level("debug")
-
 
     def test_write_trajectory_as_observable(self):
-        common.set_logging_level("error")
         traj_fname = os.path.join(self.dir, "traj_as_obs.h5")
-        simulation = Simulation()
-        simulation.set_kernel("SingleCPU")
-        simulation.box_size = common.Vec(5,5,5)
-        simulation.register_particle_type("A", 0.0, 0.0)
+        simulation = Simulation("SingleCPU")
+        simulation.context.box_size = [5., 5., 5.]
+        simulation.context.particle_types.add("A", 0.0)
 
         def callback(_):
             simulation.add_particle("A", common.Vec(0, 0, 0))
@@ -117,9 +122,9 @@ class TestSchemeApi(unittest.TestCase):
         simulation.register_observable_n_particles(1, ["A"], callback)
         traj_handle = simulation.register_observable_trajectory(1)
 
-        with closing(io.File(traj_fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
+        with closing(io.File.create(traj_fname, io.FileFlag.OVERWRITE)) as f:
             traj_handle.enable_write_to_file(f, u"", int(3))
-            simulation.run_scheme_readdy(True).configure(1).run(20)
+            simulation.run(20, 1)
 
         r = TrajectoryReader(traj_fname)
         trajectory_items = r[:]
@@ -133,18 +138,17 @@ class TestSchemeApi(unittest.TestCase):
     def test_open_and_discover_file(self):
         fname = os.path.join(self.dir, "test_open_and_discover_file.h5")
         data = np.array([[2.222, 3, 4, 5], [3.3, 3, 3, 3]], dtype=np.float64)
-        with closing(io.File(fname, io.FileAction.CREATE)) as f:
+        with closing(io.File.create(fname)) as f:
             g = f.create_group("/my_super_group")
             subg = g.create_group("my_super_subgroup")
             g.write_double("doubleds", data)
             subg.write_string("stringds", u"jap")
 
-        with closing(io.File(fname, io.FileAction.OPEN, flag=io.FileFlag.READ_WRITE)) as f:
-            root_group = f.get_root_group()
-            sg = root_group.subgroups()
+        with closing(io.File.open(fname, flag=io.FileFlag.READ_WRITE)) as f:
+            sg = f.subgroups()
             np.testing.assert_equal(len(sg), 1)
             np.testing.assert_equal(sg[0], u"my_super_group")
-            sub_group = root_group.get_subgroup(sg[0])
+            sub_group = f.get_subgroup(sg[0])
             np.testing.assert_equal(len(sub_group.data_sets()), 1)
             np.testing.assert_equal(sub_group.data_sets()[0], "doubleds")
             subsub_groups = sub_group.subgroups()
@@ -157,7 +161,7 @@ class TestSchemeApi(unittest.TestCase):
     def test_readwrite_double_and_string(self):
         fname = os.path.join(self.dir, "test_readwrite_double_and_string.h5")
         data = np.array([[2.222, 3, 4, 5], [3.3, 3, 3, 3]], dtype=np.float64)
-        with closing(io.File(fname, io.FileAction.CREATE)) as f:
+        with closing(io.File.create(fname)) as f:
             f.write_double("/sowas", data)
             f.write_string("/maeh", u"hierstehtwas")
 
@@ -168,7 +172,7 @@ class TestSchemeApi(unittest.TestCase):
     def test_groups_readwrite(self):
         fname = os.path.join(self.dir, "test_groups_readwrite.h5")
         data = np.array([[2.222, 3, 4, 5], [3.3, 3, 3, 3]], dtype=np.float64)
-        with closing(io.File(fname, io.FileAction.CREATE)) as f:
+        with closing(io.File.create(fname)) as f:
             g = f.create_group("/my_super_group")
             subg = g.create_group("my_super_subgroup")
             g.write_double("doubleds", data)
@@ -181,5 +185,4 @@ class TestSchemeApi(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    common.set_logging_level("debug")
     unittest.main()

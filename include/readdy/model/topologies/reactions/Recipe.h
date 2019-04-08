@@ -1,24 +1,36 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          * 
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
-
 
 /**
  * << detailed description >>
@@ -27,7 +39,7 @@
  * @brief << brief description >>
  * @author clonker
  * @date 13.04.17
- * @copyright GNU Lesser General Public License v3.0
+ * @copyright BSD-3
  */
 
 #pragma once
@@ -50,14 +62,13 @@ public:
 
     using reaction_operations = std::vector<op::Operation::Ref>;
     using topology_graph = actions::TopologyReactionAction::topology_graph;
+    using Vertex = topology_graph::vertex;
     using vertex_ref = topology_graph::vertex_ref;
     using vertex_cref = topology_graph::vertex_cref;
     using edge = topology_graph::edge;
-    using label_edge = topology_graph::label_edge;
-    using label_vertex = topology_graph::label;
     using graph_topology = GraphTopology;
 
-    explicit Recipe(graph_topology &topology);
+    explicit Recipe(graph_topology &topology) : _topology(topology) {};
 
     Recipe(Recipe &&) = default;
 
@@ -69,33 +80,75 @@ public:
 
     ~Recipe() = default;
 
-    Recipe &changeParticleType(const vertex_ref &ref, const particle_type_type &to);
+    Recipe &changeParticleType(const Vertex &vertex, const std::string &to);
 
-    Recipe &changeParticleType(const label_vertex &of, const particle_type_type &to);
+    Recipe &changeParticleType(const vertex_ref &ref, const std::string &to);
 
-    Recipe &addEdge(const edge &edge);
+    Recipe &changeParticleType(const Vertex &vertex, const ParticleTypeId &to);
 
-    Recipe &addEdge(vertex_ref v1, vertex_ref v2);
+    Recipe &changeParticleType(const vertex_ref &ref, const ParticleTypeId &to) {
+        _steps.push_back(std::make_shared<op::ChangeParticleType>(ref, to));
+        return *this;
+    }
 
-    Recipe &addEdge(const label_edge &labels);
+    Recipe &appendNewParticle(const std::vector<Vertex> &neighbors, const std::string &type, const Vec3 &position);
 
-    Recipe &addEdge(const std::string& edge_label1, const std::string& edge_label2);
+    Recipe &appendNewParticle(const std::vector<vertex_ref> &neighbors, const std::string &type, const Vec3 &position);
 
-    Recipe &removeEdge(const edge &edge);
+    Recipe &changeParticlePosition(const Vertex &v, Vec3 pos);
 
-    Recipe &removeEdge(vertex_ref v1, vertex_ref v2);
+    Recipe &changeParticlePosition(const vertex_ref &ref, const Vec3 &pos) {
+        _steps.push_back(std::make_shared<op::ChangeParticlePosition>(ref, pos));
+        return *this;
+    }
 
-    Recipe &removeEdge(const label_edge &labels);
+    Recipe &addEdge(const edge &edge) {
+        _steps.push_back(std::make_shared<op::AddEdge>(edge));
+        return *this;
+    }
 
-    Recipe &removeEdge(const std::string& label1, const std::string& label2);
+    Recipe &addEdge(vertex_ref v1, vertex_ref v2) {
+        return addEdge(std::tie(v1, v2));
+    }
 
-    Recipe &separateVertex(const vertex_ref &vertex);
+    Recipe &addEdge(const Vertex &v1, const Vertex &v2);
 
-    const reaction_operations &steps() const;
+    Recipe &removeEdge(const edge &edge) {
+        _steps.push_back(std::make_shared<op::RemoveEdge>(edge));
+        return *this;
+    }
 
-    graph_topology &topology();
+    Recipe &removeEdge(vertex_ref v1, vertex_ref v2) {
+        return removeEdge(std::tie(v1, v2));
+    }
 
-    const graph_topology &topology() const;
+    Recipe &removeEdge(const Vertex &v1, const Vertex &v2);
+
+    Recipe &separateVertex(const vertex_ref &vertex) {
+        std::for_each(vertex->neighbors().begin(), vertex->neighbors().end(), [this, &vertex](const auto &neighbor) {
+            this->removeEdge(std::make_tuple(vertex, neighbor));
+        });
+        return *this;
+    }
+
+    Recipe &separateVertex(const Vertex &vertex);
+
+    Recipe &changeTopologyType(const std::string &type) {
+        _steps.push_back(std::make_shared<op::ChangeTopologyType>(type));
+        return *this;
+    }
+
+    const reaction_operations &steps() const {
+        return _steps;
+    }
+
+    graph_topology &topology() {
+        return _topology;
+    }
+
+    const graph_topology &topology() const {
+        return _topology;
+    }
 
 private:
     std::reference_wrapper<graph_topology> _topology;

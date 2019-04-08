@@ -1,23 +1,36 @@
 # coding=utf-8
 
-# Copyright © 2016 Computational Molecular Biology Group,
+# Copyright © 2018 Computational Molecular Biology Group,
 #                  Freie Universität Berlin (GER)
 #
-# This file is part of ReaDDy.
+# Redistribution and use in source and binary forms, with or
+# without modification, are permitted provided that the
+# following conditions are met:
+#  1. Redistributions of source code must retain the above
+#     copyright notice, this list of conditions and the
+#     following disclaimer.
+#  2. Redistributions in binary form must reproduce the above
+#     copyright notice, this list of conditions and the following
+#     disclaimer in the documentation and/or other materials
+#     provided with the distribution.
+#  3. Neither the name of the copyright holder nor the names of
+#     its contributors may be used to endorse or promote products
+#     derived from this software without specific
+#     prior written permission.
 #
-# ReaDDy is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of
-# the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General
-# Public License along with this program. If not, see
-# <http://www.gnu.org/licenses/>.
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+# CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+# INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+# STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
 @author: clonker
@@ -33,7 +46,6 @@ import shutil
 import h5py
 import readdy._internal.readdybinding.common as common
 import readdy._internal.readdybinding.common.io as io
-import readdy._internal.readdybinding.common.util as ioutil
 from readdy._internal.readdybinding.api import Simulation
 from readdy._internal.readdybinding.api import KernelProvider
 from readdy.util import platform_utils
@@ -42,8 +54,10 @@ import readdy.util.io_utils as ioutils
 from contextlib import closing
 import numpy as np
 
+from readdy.util.testing_utils import ReaDDyTestCase
 
-class TestObservablesIO(unittest.TestCase):
+
+class TestObservablesIO(ReaDDyTestCase):
     @classmethod
     def setUpClass(cls):
         cls.kernel_provider = KernelProvider.get()
@@ -56,18 +70,17 @@ class TestObservablesIO(unittest.TestCase):
 
     def test_particle_positions_observable(self):
         fname = os.path.join(self.dir, "test_observables_particle_positions.h5")
-        sim = Simulation()
-        sim.set_kernel("SingleCPU")
-        sim.box_size = common.Vec(13, 13, 13)
-        sim.register_particle_type("A", .1, .1)
+        sim = Simulation("SingleCPU")
+        sim.context.box_size = [13., 13., 13.]
+        sim.context.particle_types.add("A", .1)
         sim.add_particle("A", common.Vec(0, 0, 0))
         # every time step, add one particle
         sim.register_observable_n_particles(1, ["A"], lambda n: sim.add_particle("A", common.Vec(1.5, 2.5, 3.5)))
         handle = sim.register_observable_particle_positions(1, [])
         n_timesteps = 19
-        with closing(io.File(fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
+        with closing(io.File.create(fname)) as f:
             handle.enable_write_to_file(f, u"particle_positions", int(3))
-            sim.run_scheme_readdy(True).configure(0).run(n_timesteps)
+            sim.run(n_timesteps, 0)
             handle.flush()
 
         with h5py.File(fname, "r") as f2:
@@ -83,27 +96,84 @@ class TestObservablesIO(unittest.TestCase):
                     np.testing.assert_equal(positions[i]["x"], 1.5)
                     np.testing.assert_equal(positions[i]["y"], 2.5)
                     np.testing.assert_equal(positions[i]["z"], 3.5)
-        common.set_logging_level("warn", python_console_out=False)
+
+    def test_virial_observable_CPU(self):
+        fname = os.path.join(self.dir, "test_observables_virial.h5")
+
+        sim = Simulation("CPU")
+        sim.context.box_size = [13., 13., 13.]
+        sim.context.particle_types.add("A", .1)
+        sim.context.potentials.add_harmonic_repulsion("A", "A", 10., .5)
+        for _ in range(10000):
+            pos = common.Vec(*(13*np.random.random(size=3)-.5*13))
+            sim.add_particle("A", pos)
+
+        virials = []
+        def virial_callback(virial):
+            virials.append(np.ndarray((3,3), buffer=virial))
+
+        handle = sim.register_observable_virial(1, virial_callback)
+        with closing(io.File.create(fname)) as f:
+            handle.enable_write_to_file(f, u"virial", int(3))
+            sim.run(10, .1)
+            handle.flush()
+
+        with h5py.File(fname, "r") as f2:
+            h5virials = f2["readdy/observables/virial/data"]
+            for v, v2 in zip(virials, h5virials):
+                np.testing.assert_almost_equal(v, v2)
+
+    def test_virial_observable_SCPU(self):
+        fname = os.path.join(self.dir, "test_observables_virial_scpu.h5")
+
+        sim = Simulation("SingleCPU")
+        sim.context.box_size = [13., 13., 13.]
+        sim.context.particle_types.add("A", .1)
+        sim.context.potentials.add_harmonic_repulsion("A", "A", 10., .5)
+        for _ in range(10000):
+            pos = common.Vec(*(13*np.random.random(size=3)-.5*13))
+            sim.add_particle("A", pos)
+
+        virials = []
+        def virial_callback(virial):
+            virials.append(np.ndarray((3,3), buffer=virial))
+
+        handle = sim.register_observable_virial(1, virial_callback)
+        with closing(io.File.create(fname)) as f:
+            handle.enable_write_to_file(f, u"virial", int(3))
+            sim.run(10, .1)
+            handle.flush()
+
+        with h5py.File(fname, "r") as f2:
+            h5virials = f2["readdy/observables/virial/data"]
+            for v, v2 in zip(virials, h5virials):
+                np.testing.assert_almost_equal(v, v2)
 
     def test_particles_observable(self):
         fname = os.path.join(self.dir, "test_observables_particles.h5")
-        sim = Simulation()
-        sim.set_kernel("SingleCPU")
-        sim.box_size = common.Vec(13, 13, 13)
-        typeid_A = sim.register_particle_type("A", .1, .1)
-        typeid_B = sim.register_particle_type("B", .1, .1)
+        sim = Simulation("SingleCPU")
+        sim.context.box_size = [13.,13.,13.]
+        sim.context.particle_types.add("A", .1)
+        sim.context.particle_types.add("B", .1)
         sim.add_particle("A", common.Vec(0, 0, 0))
         sim.add_particle("B", common.Vec(0, 0, 0))
         # every time step, add one particle
         sim.register_observable_n_particles(1, ["A"], lambda n: sim.add_particle("A", common.Vec(1.5, 2.5, 3.5)))
         handle = sim.register_observable_particles(1)
         n_timesteps = 19
-        with closing(io.File(fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
+        with closing(io.File.create(fname)) as f:
             handle.enable_write_to_file(f, u"particles", int(3))
-            sim.run_scheme_readdy(True).configure(0).run(n_timesteps)
+            loop = sim.create_loop(0)
+            loop.write_config_to_file(f)
+            loop.run(n_timesteps)
             handle.flush()
 
+        from readdy.util.io_utils import get_particle_types
+
+        particle_types = get_particle_types(fname)
+
         with h5py.File(fname, "r") as f2:
+
             types = f2["readdy/observables/particles/types"][:]
             ids = f2["readdy/observables/particles/ids"][:]
             positions = f2["readdy/observables/particles/positions"][:]
@@ -111,34 +181,32 @@ class TestObservablesIO(unittest.TestCase):
                 np.testing.assert_equal(len(types[t]), t + 3)
                 np.testing.assert_equal(len(ids[t]), t + 3)
                 np.testing.assert_equal(len(positions[t]), t + 3)
-                np.testing.assert_equal(types[t][0], typeid_A)
+                np.testing.assert_equal(types[t][0], particle_types["A"]["type_id"])
                 np.testing.assert_equal(positions[t][0][0], 0)
                 np.testing.assert_equal(positions[t][0][1], 0)
                 np.testing.assert_equal(positions[t][0][2], 0)
                 np.testing.assert_equal(positions[t][1][0], 0)
                 np.testing.assert_equal(positions[t][1][1], 0)
                 np.testing.assert_equal(positions[t][1][2], 0)
-                np.testing.assert_equal(types[t][1], typeid_B)
+                np.testing.assert_equal(types[t][1], particle_types["B"]["type_id"])
                 for others in range(2, len(types[t])):
-                    np.testing.assert_equal(types[t][others], typeid_A)
+                    np.testing.assert_equal(types[t][others], particle_types["A"]["type_id"])
                     np.testing.assert_equal(positions[t][others][0], 1.5)
                     np.testing.assert_equal(positions[t][others][1], 2.5)
                     np.testing.assert_equal(positions[t][others][2], 3.5)
 
     def test_radial_distribution_observable(self):
-        common.set_logging_level("warn", python_console_out=False)
         fname = os.path.join(self.dir, "test_observables_radial_distribution.h5")
 
-        simulation = Simulation()
-        simulation.set_kernel("SingleCPU")
+        simulation = Simulation("SingleCPU")
 
-        box_size = common.Vec(10, 10, 10)
-        simulation.kbt = 2
-        simulation.periodic_boundary = [True, True, True]
-        simulation.box_size = box_size
-        simulation.register_particle_type("A", .2, 1.)
-        simulation.register_particle_type("B", .2, 1.)
-        simulation.register_potential_harmonic_repulsion("A", "B", 10)
+        box_size = [10.,10.,10.]
+        simulation.context.kbt = 2
+        simulation.context.pbc = [True, True, True]
+        simulation.context.box_size = box_size
+        simulation.context.particle_types.add("A", .2)
+        simulation.context.particle_types.add("B", .2)
+        simulation.context.potentials.add_harmonic_repulsion("A", "B", 10, 2.)
         simulation.add_particle("A", common.Vec(-2.5, 0, 0))
         simulation.add_particle("B", common.Vec(0, 0, 0))
         bin_borders = np.arange(0, 5, .01)
@@ -152,7 +220,7 @@ class TestObservablesIO(unittest.TestCase):
             callback_rdf.append(pair[1])
 
         handle = simulation.register_observable_radial_distribution(1, bin_borders, ["A"], ["B"], density, rdf_callback)
-        with closing(io.File(fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
+        with closing(io.File.create(fname)) as f:
             handle.enable_write_to_file(f, u"radial_distribution", int(3))
             simulation.run(n_time_steps, 0.02)
             handle.flush()
@@ -164,54 +232,18 @@ class TestObservablesIO(unittest.TestCase):
                 np.testing.assert_equal(bin_centers, np.array(callback_centers[t]))
                 np.testing.assert_equal(distribution[t], np.array(callback_rdf[t]))
 
-    def test_center_of_mass_observable(self):
-        common.set_logging_level("warn", python_console_out=False)
-        fname = os.path.join(self.dir, "test_observables_com.h5")
-
-        simulation = Simulation()
-        simulation.set_kernel("SingleCPU")
-
-        box_size = common.Vec(10, 10, 10)
-        simulation.kbt = 2
-        simulation.periodic_boundary = [True, True, True]
-        simulation.box_size = box_size
-        simulation.register_particle_type("A", .2, 1.)
-        simulation.register_particle_type("B", .2, 1.)
-        simulation.add_particle("A", common.Vec(-2.5, 0, 0))
-        simulation.add_particle("B", common.Vec(0, 0, 0))
-        n_time_steps = 50
-        callback_com = []
-
-        def com_callback(vec):
-            callback_com.append(vec)
-
-        handle = simulation.register_observable_center_of_mass(1, ["A", "B"], com_callback)
-        with closing(io.File(fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
-            handle.enable_write_to_file(f, u"com", 3)
-            simulation.run(n_time_steps, 0.02)
-            handle.flush()
-
-        with h5py.File(fname, "r") as f2:
-            com = f2["readdy/observables/com/data"][:]
-            for t in range(n_time_steps):
-                np.testing.assert_equal(com[t]["x"], callback_com[t][0])
-                np.testing.assert_equal(com[t]["y"], callback_com[t][1])
-                np.testing.assert_equal(com[t]["z"], callback_com[t][2])
-
     def test_histogram_along_axis_observable(self):
-        common.set_logging_level("warn", python_console_out=False)
         fname = os.path.join(self.dir, "test_observables_hist_along_axis.h5")
 
-        simulation = Simulation()
-        simulation.set_kernel("SingleCPU")
+        simulation = Simulation("SingleCPU")
 
-        box_size = common.Vec(10, 10, 10)
-        simulation.kbt = 2
-        simulation.periodic_boundary = [True, True, True]
-        simulation.box_size = box_size
-        simulation.register_particle_type("A", .2, 1.)
-        simulation.register_particle_type("B", .2, 1.)
-        simulation.register_potential_harmonic_repulsion("A", "B", 10)
+        box_size = [10.,10.,10.]
+        simulation.context.kbt = 2
+        simulation.context.pbc = [True, True, True]
+        simulation.context.box_size = box_size
+        simulation.context.particle_types.add("A", .2)
+        simulation.context.particle_types.add("B", .2)
+        simulation.context.potentials.add_harmonic_repulsion("A", "B", 10, 2.)
         simulation.add_particle("A", common.Vec(-2.5, 0, 0))
         simulation.add_particle("B", common.Vec(0, 0, 0))
         bin_borders = np.arange(0, 5, .01)
@@ -222,7 +254,7 @@ class TestObservablesIO(unittest.TestCase):
             callback_hist.append(hist)
 
         handle = simulation.register_observable_histogram_along_axis(2, bin_borders, 0, ["A", "B"], hist_callback)
-        with closing(io.File(fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
+        with closing(io.File.create(fname)) as f:
             handle.enable_write_to_file(f, u"hist_along_x_axis", int(3))
             simulation.run(n_time_steps, 0.02)
             handle.flush()
@@ -235,18 +267,16 @@ class TestObservablesIO(unittest.TestCase):
                 np.testing.assert_equal(histogram[t], np.array(callback_hist[t]))
 
     def test_n_particles_observable(self):
-        common.set_logging_level("warn", python_console_out=False)
         fname = os.path.join(self.dir, "test_observables_n_particles.h5")
 
-        simulation = Simulation()
-        simulation.set_kernel("SingleCPU")
+        simulation = Simulation("SingleCPU")
 
-        box_size = common.Vec(10, 10, 10)
-        simulation.kbt = 2
-        simulation.periodic_boundary = [True, True, True]
-        simulation.box_size = box_size
-        simulation.register_particle_type("A", .2, 1.)
-        simulation.register_particle_type("B", .2, 1.)
+        box_size = [10.,10.,10.]
+        simulation.context.kbt = 2
+        simulation.context.pbc = [True, True, True]
+        simulation.context.box_size = box_size
+        simulation.context.particle_types.add("A", .2)
+        simulation.context.particle_types.add("B", .2)
         simulation.add_particle("A", common.Vec(-2.5, 0, 0))
         simulation.add_particle("B", common.Vec(0, 0, 0))
         n_time_steps = 50
@@ -264,7 +294,7 @@ class TestObservablesIO(unittest.TestCase):
 
         handle_a_b_particles = simulation.register_observable_n_particles(1, ["A", "B"], callback_ab)
         handle_all = simulation.register_observable_n_particles(1, [], callback_all)
-        with closing(io.File(fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
+        with closing(io.File.create(fname)) as f:
             handle_a_b_particles.enable_write_to_file(f, u"n_a_b_particles", int(3))
             handle_all.enable_write_to_file(f, u"n_particles", int(5))
             simulation.run(n_time_steps, 0.02)
@@ -282,17 +312,15 @@ class TestObservablesIO(unittest.TestCase):
                 np.testing.assert_equal(n_particles[t][0], callback_n_particles_all[t][0])
 
     def test_reactions_observable(self):
-        common.set_logging_level("warn", python_console_out=False)
         fname = os.path.join(self.dir, "test_observables_particle_reactions.h5")
-        sim = Simulation()
-        sim.set_kernel("CPU")
-        sim.box_size = common.Vec(10, 10, 10)
-        sim.register_particle_type("A", .0, 5.0)
-        sim.register_particle_type("B", .0, 6.0)
-        sim.register_particle_type("C", .0, 6.0)
-        sim.register_reaction_conversion("mylabel", "A", "B", .00001)
-        sim.register_reaction_conversion("A->B", "A", "B", 1.)
-        sim.register_reaction_fusion("B+C->A", "B", "C", "A", 1.0, 1.0, .5, .5)
+        sim = Simulation("CPU")
+        sim.context.box_size = [10.,10.,10.]
+        sim.context.particle_types.add("A", .0)
+        sim.context.particle_types.add("B", .0)
+        sim.context.particle_types.add("C", .0)
+        sim.context.reactions.add_conversion("mylabel", "A", "B", .00001)
+        sim.context.reactions.add_conversion("A->B", "A", "B", 1.)
+        sim.context.reactions.add_fusion("B+C->A", "B", "C", "A", 1.0, 1.0, .5, .5)
         sim.add_particle("A", common.Vec(0, 0, 0))
         sim.add_particle("B", common.Vec(1.0, 1.0, 1.0))
         sim.add_particle("C", common.Vec(1.1, 1.0, 1.0))
@@ -300,11 +328,13 @@ class TestObservablesIO(unittest.TestCase):
         n_timesteps = 1
 
         handle = sim.register_observable_reactions(1)
-        with closing(io.File(fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
+        with closing(io.File.create(fname)) as f:
             handle.enable_write_to_file(f, u"reactions", int(3))
-            sim.run_scheme_readdy(True).write_config_to_file(f).configure_and_run(n_timesteps, 1)
+            loop = sim.create_loop(1)
+            loop.write_config_to_file(f)
+            loop.run(n_timesteps)
 
-        type_str_to_id = ioutils.get_particle_types(fname)
+        type_str_to_id = {k: x["type_id"] for k, x in ioutils.get_particle_types(fname).items()}
 
         with h5py.File(fname, "r") as f2:
             data = f2["readdy/observables/reactions"]
@@ -314,24 +344,23 @@ class TestObservablesIO(unittest.TestCase):
             def get_item(name, collection):
                 return next(x for x in collection if x["name"] == name)
 
-            order_1_reactions = data["registered_reactions/order1_reactions"]
+            import readdy.util.io_utils as io_utils
+            reactions = io_utils.get_reactions(fname)
 
-            mylabel_reaction = get_item("mylabel", order_1_reactions)
+            mylabel_reaction = get_item("mylabel", reactions.values())
             np.testing.assert_allclose(mylabel_reaction["rate"], .00001)
             np.testing.assert_equal(mylabel_reaction["n_educts"], 1)
             np.testing.assert_equal(mylabel_reaction["n_products"], 1)
             np.testing.assert_equal(mylabel_reaction["educt_types"], [type_str_to_id["A"], 0])
             np.testing.assert_equal(mylabel_reaction["product_types"], [type_str_to_id["B"], 0])
-            atob_reaction = get_item("A->B", order_1_reactions)
+            atob_reaction = get_item("A->B", reactions.values())
             np.testing.assert_equal(atob_reaction["rate"], 1.)
             np.testing.assert_equal(atob_reaction["n_educts"], 1)
             np.testing.assert_equal(atob_reaction["n_products"], 1)
             np.testing.assert_equal(mylabel_reaction["educt_types"], [type_str_to_id["A"], 0])
             np.testing.assert_equal(mylabel_reaction["product_types"], [type_str_to_id["B"], 0])
 
-            order_2_reactions = data["registered_reactions/order2_reactions"]
-
-            fusion_reaction = get_item("B+C->A", order_2_reactions)
+            fusion_reaction = get_item("B+C->A", reactions.values())
             np.testing.assert_equal(fusion_reaction["rate"], 1.)
             np.testing.assert_equal(fusion_reaction["educt_distance"], 1.)
             np.testing.assert_equal(fusion_reaction["n_educts"], 2)
@@ -346,35 +375,37 @@ class TestObservablesIO(unittest.TestCase):
                 np.testing.assert_equal(record["reaction_type"] == 0 or record["reaction_type"] == 1, True)
                 if record["reaction_type"] == 0:
                     np.testing.assert_equal(record["position"], np.array([.0, .0, .0]))
-                    np.testing.assert_equal(record["reaction_index"], 1)
+                    np.testing.assert_equal(record["reaction_id"], atob_reaction["id"])
                 elif record["reaction_type"] == 1:
                     # fusion
                     np.testing.assert_allclose(record["position"], np.array([1.05, 1.0, 1.0]))
-                    np.testing.assert_equal(record["reaction_index"], 0)
-
-        common.set_logging_level("warn", python_console_out=False)
+                    np.testing.assert_equal(record["reaction_id"], fusion_reaction["id"])
 
     def test_reaction_counts_observable(self):
-        common.set_logging_level("warn", python_console_out=False)
         fname = os.path.join(self.dir, "test_observables_particle_reaction_counts.h5")
-        sim = Simulation()
-        sim.set_kernel("CPU")
-        sim.box_size = common.Vec(10, 10, 10)
-        sim.register_particle_type("A", .0, 5.0)
-        sim.register_particle_type("B", .0, 6.0)
-        sim.register_particle_type("C", .0, 6.0)
-        sim.register_reaction_conversion("mylabel", "A", "B", .00001)
-        sim.register_reaction_conversion("A->B", "A", "B", 1.)
-        sim.register_reaction_fusion("B+C->A", "B", "C", "A", 1.0, 1.0, .5, .5)
+        sim = Simulation("CPU")
+        sim.context.box_size = [10., 10., 10.]
+        sim.context.particle_types.add("A", .0)
+        sim.context.particle_types.add("B", .0)
+        sim.context.particle_types.add("C", .0)
+        sim.context.reactions.add_conversion("mylabel", "A", "B", .00001)
+        sim.context.reactions.add_conversion("A->B", "A", "B", 1e16)
+        sim.context.reactions.add_fusion("B+C->A", "B", "C", "A", 1e16, 1.0, .5, .5)
         sim.add_particle("A", common.Vec(0, 0, 0))
         sim.add_particle("B", common.Vec(1.0, 1.0, 1.0))
         sim.add_particle("C", common.Vec(1.1, 1.0, 1.0))
 
         n_timesteps = 1
         handle = sim.register_observable_reaction_counts(1)
-        with closing(io.File(fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
+        with closing(io.File.create(fname)) as f:
             handle.enable_write_to_file(f, u"reactions", int(3))
-            sim.run_scheme_readdy(True).write_config_to_file(f).with_reaction_scheduler("GillespieParallel").configure_and_run(n_timesteps, 1)
+            loop = sim.create_loop(1)
+            loop.use_reaction_scheduler("Gillespie")
+            loop.write_config_to_file(f)
+            loop.run(1)
+
+        import readdy.util.io_utils as io_utils
+        reactions = io_utils.get_reactions(fname)
 
         with h5py.File(fname, "r") as f2:
             data = f2["readdy/observables/reactions"]
@@ -384,40 +415,32 @@ class TestObservablesIO(unittest.TestCase):
             def get_item(name, collection):
                 return next(x for x in collection if x["name"] == name)
 
-            order_1_reactions = data["registered_reactions/order1_reactions"]
-            order_2_reactions = data["registered_reactions/order2_reactions"]
-
-            mylabel_reaction = get_item("mylabel", order_1_reactions)
-            reaction_idx_mylabel = mylabel_reaction["index"]
-            atob_reaction = get_item("A->B", order_1_reactions)
-            reaction_idx_atob = atob_reaction["index"]
+            mylabel_id = get_item("mylabel", reactions.values())["id"]
+            atob_id = get_item("A->B", reactions.values())["id"]
+            fusion_id = get_item("B+C->A", reactions.values())["id"]
 
             # counts of first time step, time is first index
-            np.testing.assert_equal(data["counts/order1/A[id=0]"][0, reaction_idx_mylabel], np.array([0]))
-            np.testing.assert_equal(data["counts/order1/A[id=0]"][0, reaction_idx_atob], np.array([0]))
-            np.testing.assert_equal(data["counts/order2/B[id=1] + C[id=2]"][0, 0], np.array([0]))
+            np.testing.assert_equal(data["counts/"+str(mylabel_id)][0], np.array([0]))
+            np.testing.assert_equal(data["counts/"+str(atob_id)][0], np.array([0]))
+            np.testing.assert_equal(data["counts/"+str(fusion_id)][0], np.array([0]))
             # counts of second time step
-            np.testing.assert_equal(data["counts/order1/A[id=0]"][1, reaction_idx_mylabel], np.array([0]))
-            np.testing.assert_equal(data["counts/order1/A[id=0]"][1, reaction_idx_atob], np.array([1]))
-            np.testing.assert_equal(data["counts/order2/B[id=1] + C[id=2]"][1, 0], np.array([1]))
-
-        common.set_logging_level("warn", python_console_out=False)
-        # register_observable_reaction_counts
+            np.testing.assert_equal(data["counts/"+str(mylabel_id)][1], np.array([0]))
+            np.testing.assert_equal(data["counts/"+str(atob_id)][1], np.array([1]))
+            np.testing.assert_equal(data["counts/"+str(fusion_id)][1], np.array([1]))
 
     def test_forces_observable(self):
         fname = os.path.join(self.dir, "test_observables_particle_forces.h5")
-        sim = Simulation()
-        sim.set_kernel("CPU")
-        sim.box_size = common.Vec(13, 13, 13)
-        sim.register_particle_type("A", .1, .1)
+        sim = Simulation("CPU")
+        sim.context.box_size = [13.,13.,13.]
+        sim.context.particle_types.add("A", .1)
         sim.add_particle("A", common.Vec(0, 0, 0))
         # every time step, add one particle
         sim.register_observable_n_particles(1, ["A"], lambda n: sim.add_particle("A", common.Vec(1.5, 2.5, 3.5)))
         handle = sim.register_observable_forces(1, [])
         n_timesteps = 19
-        with closing(io.File(fname, io.FileAction.CREATE, io.FileFlag.OVERWRITE)) as f:
+        with closing(io.File.create(fname)) as f:
             handle.enable_write_to_file(f, u"forces", int(3))
-            sim.run_scheme_readdy(True).configure(1).run(n_timesteps)
+            sim.run(n_timesteps, 1.)
             handle.flush()
 
         with h5py.File(fname, "r") as f2:

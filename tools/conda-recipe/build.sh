@@ -8,24 +8,30 @@ unset MACOSX_DEPLOYMENT_TARGET
 #                                                       #
 #########################################################
 
+# install prefix
+CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=${PREFIX}"
 # prefix path
-CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX"
+CMAKE_FLAGS+=" -DCMAKE_PREFIX_PATH=${PREFIX}"
+# python prefix
+CMAKE_FLAGS+=" -DPYTHON_PREFIX=${PREFIX}"
+# python executable
+CMAKE_FLAGS+=" -DPYTHON_EXECUTABLE=${PYTHON}"
 # do not generate documentation target
 CMAKE_FLAGS+=" -DREADDY_GENERATE_DOCUMENTATION_TARGET:BOOL=OFF"
 # build monolithic lib
 CMAKE_FLAGS+=" -DREADDY_BUILD_SHARED_COMBINED:BOOL=ON"
 # release compile flags
-CMAKE_FLAGS+=" -DCMAKE_BUILD_TYPE=${BUILD_TYPE}" # BUILD_TYPE="Release" if not a PR, otherwise RelWithDebInfo
+CMAKE_FLAGS+=" -DCMAKE_BUILD_TYPE=Release"
 # debug cmake config
 CMAKE_FLAGS+=" -DREADDY_LOG_CMAKE_CONFIGURATION:BOOL=ON"
 # enable testing and install test target
 CMAKE_FLAGS+=" -DREADDY_CREATE_TEST_TARGET:BOOL=ON"
-CMAKE_FLAGS+=" -DREADDY_INSTALL_UNIT_TEST_EXECUTABLE:BOOL=ON"
+CMAKE_FLAGS+=" -DREADDY_INSTALL_UNIT_TEST_EXECUTABLE:BOOL=OFF"
 # hdf5 flags
-CMAKE_FLAGS+=" -DHDF5_INCLUDE_DIR=$PREFIX/include"
-# select compiler
-CMAKE_FLAGS+=" -DCMAKE_C_COMPILER=${CC}"
-CMAKE_FLAGS+=" -DCMAKE_CXX_COMPILER=${CXX}"
+CMAKE_FLAGS+=" -DHDF5_INCLUDE_DIRS=${PREFIX}/include"
+# version flags
+CMAKE_FLAGS+=" -DREADDY_VERSION=${PKG_VERSION}"
+CMAKE_FLAGS+=" -DREADDY_BUILD_STRING=${PKG_BUILDNUM}"
 
 #########################################################
 #                                                       #
@@ -40,10 +46,6 @@ CMAKE_FLAGS+=" -DCMAKE_CXX_COMPILER=${CXX}"
 
 export HDF5_ROOT=${PREFIX}
 
-# cant reliably determine cpu count in a docker container,
-# therefore fix this value.
-if [ "$TRAVIS" == "true" ]; then CPU_COUNT=2; fi
-
 mkdir build || true
 cd build
 echo "calling cmake with flags: "
@@ -53,11 +55,36 @@ do
 done
 
 cmake .. ${CMAKE_FLAGS}
-make -j${CPU_COUNT}
-make install &> /dev/null
+make ${MAKEFLAGS} -v
+make install
 
-if [ $(uname) = "Darwin" ]; then
-    install_name_tool -add_rpath @loader_path/../readdy/readdy_plugins/ $PREFIX/bin/runUnitTests_singlecpu
-    install_name_tool -add_rpath @loader_path/../readdy/readdy_plugins/ $PREFIX/bin/runUnitTests_cpu
-    # install_name_tool -add_rpath @loader_path/../readdy/readdy_plugins/ $PREFIX/bin/runUnitTests_cpu_dense
+export READDY_N_CORES=2
+
+err_code=0
+ret_code=0
+
+echo "calling c++ core unit tests"
+CONDA_ENV_PATH=${PREFIX} bin/runUnitTests --durations yes
+err_code=$?
+if [ ${err_code} -ne 0 ]; then
+    ret_code=${err_code}
+    echo "core unit tests failed with ${ret_code}"
 fi
+
+echo "calling c++ singlecpu unit tests"
+CONDA_ENV_PATH=${PREFIX} bin/runUnitTests_singlecpu --durations yes
+err_code=$?
+if [ ${err_code} -ne 0 ]; then
+    ret_code=${err_code}
+    echo "singlecpu unit tests failed with ${ret_code}"
+fi
+
+echo "calling c++ cpu unit tests"
+CONDA_ENV_PATH=${PREFIX} bin/runUnitTests_cpu --durations yes
+err_code=$?
+if [ ${err_code} -ne 0 ]; then
+    ret_code=${err_code}
+    echo "cpu unit tests failed with ${ret_code}"
+fi
+
+exit ${ret_code}

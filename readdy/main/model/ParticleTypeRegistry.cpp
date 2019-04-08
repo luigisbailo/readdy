@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          * 
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -27,106 +40,66 @@
  * @brief << brief description >>
  * @author clonker
  * @date 29.03.17
- * @copyright GNU Lesser General Public License v3.0
+ * @copyright BSD-3
  */
 
 #include <readdy/model/ParticleTypeRegistry.h>
+#include <readdy/model/Utils.h>
 
 namespace readdy {
 namespace model {
 
 
-ParticleTypeInfo::ParticleTypeInfo(const std::string &name, const scalar  diffusionConstant, const scalar  radius,
+ParticleTypeInfo::ParticleTypeInfo(const std::string &name, const scalar diffusionConstant,
                                    const particle_flavor flavor, const Particle::type_type typeId)
-        : name(name), diffusionConstant(diffusionConstant), radius(radius), flavor(flavor), typeId(typeId) {}
+        : name(name), diffusionConstant(diffusionConstant), flavor(flavor), typeId(typeId) {}
 
 
-const ParticleTypeInfo &ParticleTypeRegistry::info_of(const std::string &name) const {
-    return info_of(_id_of(name));
-}
-
-const ParticleTypeInfo &ParticleTypeRegistry::info_of(const Particle::type_type type) const {
-    return particle_info_.at(type);
-}
-
-const ParticleTypeRegistry::type_map &ParticleTypeRegistry::type_mapping() const {
-    return type_mapping_;
-}
-
-std::string ParticleTypeRegistry::name_of(particle_type_type id) const {
-    for (const auto &e : type_mapping_) {
-        if (e.second == id) return e.first;
+void ParticleTypeRegistry::add(const std::string &name, const scalar diffusionConst, const particle_flavor flavor) {
+    util::validateTypeName(name);
+    {
+        if(diffusionConst < 0) {
+            throw std::invalid_argument("The diffusion constant must not be negative");
+        }
+        // check if name already exists
+        for(const auto &e : particle_info_) {
+            if(e.second.name == name) {
+                throw std::invalid_argument(fmt::format("A particle type with name {} already exists.", name));
+            }
+        }
     }
-    return "";
-}
-
-std::vector<particle_type_type> ParticleTypeRegistry::types_flat() const {
-    std::vector<particle_type_type> v;
-    for (auto &&entry : type_mapping_) {
-        v.push_back(entry.second);
-    }
-    return v;
-}
-
-scalar  ParticleTypeRegistry::radius_of(const particle_type_type type) const {
-    return particle_info_.at(type).radius;
-}
-
-scalar  ParticleTypeRegistry::radius_of(const std::string &type) const {
-    return radius_of(id_of(type));
-}
-
-scalar  ParticleTypeRegistry::diffusion_constant_of(const particle_type_type particleType) const {
-    return particle_info_.at(particleType).diffusionConstant;
-}
-
-scalar  ParticleTypeRegistry::diffusion_constant_of(const std::string &particleType) const {
-    return diffusion_constant_of(id_of(particleType));
-}
-
-void
-ParticleTypeRegistry::add(const std::string &name, const scalar diffusionConst, const scalar radius,
-                          const particle_flavor flavor) {
-    particle_type_type t_id = type_counter_++;
+    ParticleTypeId t_id = type_counter_++;
     type_mapping_.emplace(name, t_id);
-    particle_info_.emplace(std::make_pair(t_id, ParticleTypeInfo{name, diffusionConst, radius, flavor, t_id}));
+    particle_info_.emplace(std::make_pair(t_id, ParticleTypeInfo{name, diffusionConst, flavor, t_id}));
     n_types_++;
 }
 
-particle_type_type ParticleTypeRegistry::id_of(const std::string &name) const {
-    return _id_of(name);
-}
-
-const std::size_t &ParticleTypeRegistry::n_types() const {
-    return n_types_;
-}
-
-particle_type_type ParticleTypeRegistry::_id_of(const std::string &name) const {
-    auto it = type_mapping_.find(name);
-    if(it == type_mapping_.end()) {
-        throw std::invalid_argument(
-                fmt::format("Could not find type \"{}\", did you forget to register it before accessing it?", name)
-        );
-    }
-    return it->second;
-}
-
-void ParticleTypeRegistry::debug_output() const {
-    log::debug(" - particle types:");
-    for(const auto& entry : particle_info_) {
-        auto flavorStr = [&entry]() -> std::string {
-            switch(entry.second.flavor) {
-                case model::particleflavor::NORMAL: return "NORMAL";
-                case model::particleflavor::TOPOLOGY: return "TOPOLOGY";
-                case model::particleflavor::MEMBRANE: return "MEMBRANE";
-                default: return "UNKNOWN";
+std::string ParticleTypeRegistry::describe() const {
+    namespace rus = readdy::util::str;
+    std::string description;
+    description += fmt::format(" - particle types:{}", rus::newline);
+    auto flavorName = [](auto flavor) -> std::string {
+        switch (flavor) {
+            case particleflavor::NORMAL: {
+                return "";
             }
-        }();
-        log::debug("     * particle type \"{}\" with D={}, r={}, flavor={}, id={}", entry.second.name,
-                   entry.second.diffusionConstant, entry.second.radius, flavorStr, entry.second.typeId);
+            case particleflavor::TOPOLOGY: {
+                return "Topology";
+            }
+            case particleflavor::MEMBRANE: {
+                return "Membrane";
+            }
+            default: {
+                throw std::logic_error("encountered a particle flavor that was neither of NORMAL, TOPOLOGY, MEMBRANE.");
+            }
+        }
+    };
+    for (const auto &entry : particle_info_) {
+        description += fmt::format("     * {} particle type \"{}\" with D={}{}", flavorName(entry.second.flavor),
+                                   entry.second.name, entry.second.diffusionConstant, rus::newline);
     }
+    return description;
 }
 
-void ParticleTypeRegistry::configure() { /*no op*/ }
 }
 }

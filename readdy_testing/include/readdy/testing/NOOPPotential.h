@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -30,55 +43,40 @@
  * @date 19.08.16
  */
 
-#ifndef READDY_MAIN_NOOPPOTENTIAL_H
-#define READDY_MAIN_NOOPPOTENTIAL_H
+#pragma once
 
 #include <readdy/model/potentials/PotentialOrder2.h>
 
-namespace readdy {
-namespace testing {
+namespace readdy::testing {
+
 struct NOOPPotentialOrder2 : public readdy::model::potentials::PotentialOrder2 {
-    NOOPPotentialOrder2(const std::string &particleType1, const std::string &particleType2,
+    NOOPPotentialOrder2(particle_type_type particleType1, particle_type_type particleType2,
                         readdy::scalar cutoff = 0, readdy::scalar force = 0, readdy::scalar energy = 0)
             : PotentialOrder2(particleType1, particleType2), cutoff(cutoff), force(force), energy(energy) {}
 
     std::string describe() const override {
-        return "NOOPPotential with types " + particleType1 + ", " + particleType2;
+        return "NOOPPotential with types " + std::to_string(_particleType1) + ", " + std::to_string(_particleType2);
     }
 
-    virtual readdy::scalar getCutoffRadius() const override {
-        return cutoff;
-    }
-
-    virtual readdy::scalar calculateEnergy(const readdy::model::Vec3 &x_ij) const override {
+    readdy::scalar calculateEnergy(const Vec3 &x_ij) const override {
         return energy;
     }
 
-    virtual void calculateForce(readdy::model::Vec3 &force, const readdy::model::Vec3 &x_ij) const override {
+    std::string type() const override {
+        return "noop pot";
+    }
+
+    void calculateForce(Vec3 &force, const Vec3 &x_ij) const override {
         force[0] = NOOPPotentialOrder2::force;
         force[1] = NOOPPotentialOrder2::force;
         force[2] = NOOPPotentialOrder2::force;
     }
 
-    virtual void calculateForceAndEnergy(readdy::model::Vec3 &force, readdy::scalar &energy,
-                                         const readdy::model::Vec3 &x_ij) const override {
-        energy = NOOPPotentialOrder2::calculateEnergy(x_ij);
-        NOOPPotentialOrder2::calculateForce(force, x_ij);
-    }
-
-    virtual readdy::scalar getMaximalForce(readdy::scalar kbt) const noexcept override { return force; }
-
-    virtual readdy::scalar getCutoffRadiusSquared() const override {
-        return getCutoffRadius() * getCutoffRadius();
+    readdy::scalar getCutoffRadiusSquared() const override {
+        return cutoff*cutoff;
     }
 
     readdy::scalar cutoff, force, energy;
-protected:
-    friend class readdy::model::potentials::PotentialRegistry;
-
-    virtual void configureForTypes(const readdy::model::ParticleTypeRegistry *const context, particle_type_type type1, particle_type_type type2) override {};
 };
-}
-}
 
-#endif //READDY_MAIN_NOOPPOTENTIAL_H
+}

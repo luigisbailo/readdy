@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -34,11 +47,9 @@
 
 #include <string>
 #include <unordered_map>
-#include <readdy/model/observables/Observable.h>
 #include <readdy/common/Utils.h>
 #include <readdy/model/observables/Observables.h>
 #include "Aggregators.h"
-#include "Positions.h"
 
 NAMESPACE_BEGIN(readdy)
 NAMESPACE_BEGIN(model)
@@ -46,102 +57,73 @@ class Kernel;
 
 NAMESPACE_BEGIN(observables)
 
+namespace detail {
+template<typename T>
+using is_observable_type = std::enable_if_t<std::is_base_of<model::observables::ObservableBase, T>::value>;
+}
+
 class ObservableFactory {
 public:
+    using stride_type = ObservableBase::stride_type;
+    
     explicit ObservableFactory(Kernel *const kernel) : kernel(kernel) {};
 
-    template<typename T, typename Obs1, typename Obs2>
-    inline std::unique_ptr<T> create(Obs1 *obs1, Obs2 *obs2, unsigned int stride = 1) const {
-        return std::make_unique<T>(kernel, obs1, obs2, stride);
+    template<typename T>
+    std::unique_ptr<Trivial<T>> collect(stride_type stride, T* observable, detail::is_observable_type<T>* = 0) const {
+        return std::make_unique<Trivial<T>>(kernel, stride, observable);
+    }
+    
+    std::unique_ptr<Energy> energy(stride_type stride) const {
+        return std::make_unique<Energy>(kernel, stride);
+    };
+
+    virtual std::unique_ptr<Virial> virial(stride_type stride) const = 0;
+    
+    virtual std::unique_ptr<HistogramAlongAxis> histogramAlongAxis(stride_type stride, std::vector<scalar> binBorders, 
+                                                                   std::vector<std::string> typesToCount, 
+                                                                   unsigned int axis) const = 0;
+    
+    std::unique_ptr<NParticles> nParticles(stride_type stride) const { return nParticles(stride, {}); }
+    
+    virtual std::unique_ptr<NParticles> nParticles(stride_type stride, std::vector<std::string> typesToCount) const = 0;
+
+    std::unique_ptr<Forces> forces(stride_type stride) const { return forces(stride, {}); }
+    
+    virtual std::unique_ptr<Forces> forces(stride_type stride, std::vector<std::string> typesToCount) const  = 0;
+
+    std::unique_ptr<Positions> positions(stride_type stride) const { return positions(stride, {}); }
+
+    virtual std::unique_ptr<Positions> positions(stride_type stride, std::vector<std::string> typesToCount) const = 0;
+
+    virtual std::unique_ptr<RadialDistribution> radialDistribution(stride_type stride, std::vector<scalar> binBorders, 
+                                                                   std::vector<std::string> typeCountFrom,
+                                                                   std::vector<std::string> typeCountTo,
+                                                                   scalar particleDensity) const = 0;
+
+    virtual std::unique_ptr<Particles> particles(stride_type stride) const = 0;
+
+    virtual std::unique_ptr<MeanSquaredDisplacement> msd(stride_type stride, std::vector<std::string> typesToCount, 
+                                                         Particles *particlesObservable) const = 0;
+
+    virtual std::unique_ptr<Reactions> reactions(stride_type stride) const = 0;
+
+    virtual std::unique_ptr<ReactionCounts> reactionCounts(stride_type stride) const = 0;
+
+    std::unique_ptr<Trajectory> trajectory(stride_type stride) const {
+        return std::make_unique<Trajectory>(kernel, stride);
     }
 
-    template<typename R, typename... Args>
-    inline std::unique_ptr<R> create(unsigned int stride, Args &&... args) const {
-        return std::unique_ptr<R>(
-                ObservableFactory::get_dispatcher<R, Args...>::impl(this, stride, std::forward<Args>(args)...));
+    std::unique_ptr<FlatTrajectory> flatTrajectory(stride_type stride) const {
+        return std::make_unique<FlatTrajectory>(kernel, stride);
     }
 
-    virtual HistogramAlongAxis* createHistogramAlongAxis(unsigned int stride, std::vector<scalar> binBorders,
-                             std::vector<std::string> typesToCount, unsigned int axis) const {
-        throw std::runtime_error("should be overridden if a kernel supports this observable");
-    }
-
-    NParticles* createNParticles(unsigned int stride) const { return createNParticles(stride, {}); }
-
-    virtual NParticles* createNParticles(unsigned int stride, std::vector<std::string> typesToCount) const {
-        throw std::runtime_error("should be overridden if a kernel supports this observable");
-    }
-
-    Forces* createForces(unsigned int stride) const { return createForces(stride, {}); }
-
-    virtual Forces* createForces(unsigned int stride, std::vector<std::string> typesToCount) const {
-        throw std::runtime_error("should be overridden if a kernel supports this observable");
-    }
-
-    Positions* createPositions(unsigned int stride) const { return createPositions(stride, {}); }
-
-    virtual Positions* createPositions(unsigned int stride, std::vector<std::string> typesToCount) const {
-        throw std::runtime_error("should be overridden if a kernel supports this observable");
-    }
-
-    virtual RadialDistribution *
-    createRadialDistribution(unsigned int stride, std::vector<scalar> binBorders, std::vector<std::string> typeCountFrom,
-                             std::vector<std::string> typeCountTo,
-                             scalar particleDensity) const {
-        throw std::runtime_error("should be overridden if a kernel supports this observable");
-    }
-
-    virtual Particles *
-    createParticles(unsigned int stride) const {
-        throw std::runtime_error("should be overridden if a kernel supports this observable");
-    }
-
-    virtual MeanSquaredDisplacement *
-    createMeanSquaredDisplacement(unsigned int stride, std::vector<std::string> typesToCount, Particles *particlesObservable) const {
-        throw std::runtime_error("should be overridden if a kernel supports this observable");
-    }
-
-    virtual Reactions * createReactions(unsigned int stride) const {
-        throw std::runtime_error("should be overridden if a kernel supports this observable");
-    }
-
-    virtual ReactionCounts* createReactionCounts(unsigned int stride) const {
-        throw std::runtime_error("should be overridden if a kernel supports this observable");
+    std::unique_ptr<Topologies> topologies(stride_type stride) const {
+        return std::make_unique<Topologies>(kernel, stride);
     }
 
 protected:
     Kernel *const kernel;
-
-    template<typename T, typename... Args>
-    struct get_dispatcher;
-
-    template<typename T, typename... Args>
-    struct get_dispatcher {
-        static T *impl(const ObservableFactory *self, unsigned int stride, Args &&... args) {
-            // this only invokes the normal constructor
-            return new T(self->kernel, stride, std::forward<Args>(args)...);
-        };
-    };
-
 };
-
-READDY_CREATE_OBSERVABLE_FACTORY_DISPATCHER(HistogramAlongAxis)
-
-READDY_CREATE_OBSERVABLE_FACTORY_DISPATCHER(NParticles)
-
-READDY_CREATE_OBSERVABLE_FACTORY_DISPATCHER(Forces)
-
-READDY_CREATE_OBSERVABLE_FACTORY_DISPATCHER(Positions)
-
-READDY_CREATE_OBSERVABLE_FACTORY_DISPATCHER(RadialDistribution)
-
-READDY_CREATE_OBSERVABLE_FACTORY_DISPATCHER(Particles)
-
-READDY_CREATE_OBSERVABLE_FACTORY_DISPATCHER(MeanSquaredDisplacement)
-
-READDY_CREATE_OBSERVABLE_FACTORY_DISPATCHER(Reactions)
-
-READDY_CREATE_OBSERVABLE_FACTORY_DISPATCHER(ReactionCounts)
 
 NAMESPACE_END(observables)
 NAMESPACE_END(model)

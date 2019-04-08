@@ -1,29 +1,42 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
 /**
  * << detailed description >>
  *
- * @file SingleCPUKernelStateModel.h
+ * @file SCPUStateModel.h
  * @brief << brief description >>
  * @author clonker
  * @date 19.04.16
@@ -32,89 +45,159 @@
 #pragma once
 
 #include <memory>
-#include <readdy/model/KernelStateModel.h>
-#include <readdy/model/Vec3.h>
+#include <readdy/model/StateModel.h>
 #include <readdy/kernel/singlecpu/model/SCPUParticleData.h>
-#include <readdy/model/KernelContext.h>
+#include <readdy/model/Context.h>
 #include <readdy/kernel/singlecpu/model/SCPUNeighborList.h>
 #include <readdy/model/reactions/ReactionRecord.h>
-#include <readdy/model/observables/ReactionCounts.h>
+#include "model/ObservableData.h"
 #include <readdy/common/index_persistent_vector.h>
 
 namespace readdy {
 namespace kernel {
 namespace scpu {
 
-class SCPUStateModel : public readdy::model::KernelStateModel {
+class SCPUStateModel : public readdy::model::StateModel {
     using topology_action_factory = readdy::model::top::TopologyActionFactory;
-    using reaction_counts_order1_map = readdy::model::observables::ReactionCounts::reaction_counts_order1_map;
-    using reaction_counts_order2_map = readdy::model::observables::ReactionCounts::reaction_counts_order2_map;
 public:
-
+    using reaction_counts_map = readdy::model::reactions::reaction_counts_map;
     using topology = readdy::model::top::GraphTopology;
     using topology_ref = std::unique_ptr<topology>;
     using topologies_vec = readdy::util::index_persistent_vector<topology_ref>;
 
-    void updateNeighborList(scalar skin) override;
+    void initializeNeighborList(scalar interactionDistance) override {
+        neighborList->setUp(interactionDistance, 1);
+    }
 
-    void clearNeighborList() override;
+    void updateNeighborList() override {
+        neighborList->update();
+    }
 
-    void calculateForces() override;
+    void clearNeighborList() override {
+        neighborList->clear();
+    }
 
-    void addParticle(const readdy::model::Particle &p) override;
+    void addParticle(const readdy::model::Particle &p) override {
+        particleData.addParticles({p});
+    }
 
-    void addParticles(const std::vector<readdy::model::Particle> &p) override;
+    void addParticles(const std::vector<readdy::model::Particle> &p) override {
+        particleData.addParticles(p);
+    }
 
-    void removeParticle(const readdy::model::Particle &p) override;
+    void removeParticle(const readdy::model::Particle &p) override {
+        particleData.removeParticle(p);
+    }
 
-    void removeAllParticles() override;
+    void removeAllParticles() override {
+        particleData.clear();
+    }
 
-    readdy::model::top::GraphTopology *const addTopology(const std::vector<readdy::model::TopologyParticle> &particles) override;
+    readdy::model::top::GraphTopology *const addTopology(TopologyTypeId type, const std::vector<readdy::model::TopologyParticle> &particles) override;
 
-    const std::vector<readdy::model::Vec3> getParticlePositions() const override;
+    const std::vector<Vec3> getParticlePositions() const override;
 
-    readdy::model::Particle getParticleForIndex(std::size_t index) const override;
+    readdy::model::Particle getParticleForIndex(std::size_t index) const override {
+        return particleData.getParticle(index);
+    }
 
-    particle_type_type getParticleType(std::size_t index) const override;
+    ParticleTypeId getParticleType(std::size_t index) const override {
+        return getParticleData()->entry_at(index).type;
+    }
 
-    scalar getEnergy() const override;
+    scalar energy() const override {
+        return _observableData.energy;
+    }
 
-    virtual void increaseEnergy(scalar increase);
+    scalar &energy() override {
+        return _observableData.energy;
+    }
 
-    SCPUStateModel(readdy::model::KernelContext const *context, const topology_action_factory *);
+    scalar time() const override {
+        return _observableData.time;
+    }
 
-    ~SCPUStateModel() override;
+    scalar &time() override {
+        return _observableData.time;
+    }
+
+    SCPUStateModel(const readdy::model::Context &context, const topology_action_factory *);
+
+    ~SCPUStateModel() override = default;
 
     // move
-    SCPUStateModel(SCPUStateModel &&rhs) noexcept;
+    SCPUStateModel(SCPUStateModel &&rhs) noexcept = default;
 
-    SCPUStateModel &operator=(SCPUStateModel &&rhs) noexcept;
+    SCPUStateModel &operator=(SCPUStateModel &&rhs) noexcept = default;
 
     SCPUStateModel(const SCPUStateModel&) = delete;
 
     SCPUStateModel& operator=(const SCPUStateModel&) = delete;
 
-    virtual readdy::kernel::scpu::model::SCPUParticleData *getParticleData() const;
+    readdy::kernel::scpu::model::SCPUParticleData *getParticleData() {
+        return &particleData;
+    }
 
-    virtual const model::SCPUNeighborList *getNeighborList() const;
+    const readdy::kernel::scpu::model::SCPUParticleData *getParticleData() const {
+        return &particleData;
+    }
+
+    virtual const model::CellLinkedList *getNeighborList() const {
+        return neighborList.get();
+    }
+
+    model::CellLinkedList *getNeighborList() {
+        return neighborList.get();
+    }
 
     const std::vector<readdy::model::Particle> getParticles() const override;
 
-    std::vector<readdy::model::reactions::ReactionRecord>& reactionRecords();
+    std::vector<readdy::model::reactions::ReactionRecord>& reactionRecords() {
+        return _observableData.reactionRecords;
+    }
 
-    const std::vector<readdy::model::reactions::ReactionRecord>& reactionRecords() const;
+    const std::vector<readdy::model::reactions::ReactionRecord>& reactionRecords() const {
+        return _observableData.reactionRecords;
+    }
 
-    const std::pair<reaction_counts_order1_map, reaction_counts_order2_map> &reactionCounts() const;
+    const reaction_counts_map & reactionCounts() const {
+        return _observableData.reactionCounts;
+    }
 
-    std::pair<reaction_counts_order1_map, reaction_counts_order2_map> &reactionCounts();
+    reaction_counts_map &reactionCounts() {
+        return _observableData.reactionCounts;
+    }
 
-    void expected_n_particles(std::size_t n) override;
+    Matrix33 &virial() {
+        return _observableData.virial;
+    }
 
-    const topologies_vec &topologies() const;
+    const Matrix33 &virial() const {
+        return _observableData.virial;
+    }
 
-    topologies_vec &topologies();
+    void resetReactionCounts();
+
+    const topologies_vec &topologies() const {
+        return _topologies;
+    }
+
+    topologies_vec &topologies() {
+        return _topologies;
+    }
+
+    model::ObservableData &observableData() {
+        return _observableData;
+    }
+
+    const model::ObservableData &observableData() const {
+        return _observableData;
+    }
 
     void insert_topology(topology&& top);
+
+    void toDenseParticleIndices(std::vector<std::size_t>::iterator begin,
+                                std::vector<std::size_t>::iterator end) const override;
 
     std::vector<readdy::model::top::GraphTopology*> getTopologies() override;
 
@@ -122,11 +205,18 @@ public:
 
     readdy::model::top::GraphTopology *getTopologyForParticle(readdy::model::top::Topology::particle_index particle) override;
 
+    void clear() override;
+
 private:
-    struct Impl;
-    std::unique_ptr<Impl> pimpl;
+    model::SCPUParticleData particleData {};
+    std::unique_ptr<model::CellLinkedList> neighborList;
+    SCPUStateModel::topology_action_factory const *topologyActionFactory {nullptr};
+
+    std::reference_wrapper<const readdy::model::Context> _context;
 
     topologies_vec _topologies;
+
+    model::ObservableData _observableData;
 };
 
 }

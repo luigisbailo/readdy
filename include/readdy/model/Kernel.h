@@ -1,28 +1,41 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
 /**
  * This file contains the base class definitions for Kernel and KernelProvider.
- * A Kernel is used to execute Programs, i.e., instances of readdy::plugin::Program.
+ * A Kernel is used to execute Actions, i.e., instances of readdy::model::Action.
  * The derived kernels can be built in or provided by shared libs in directories, which are loaded by the KernelProvider.
  * Each Kernel has a readdy::plugin::Kernel::name by which it can be accessed in the KernelProvider.
  *
@@ -36,31 +49,23 @@
 
 #include <map>
 #include <iostream>
+#include <utility>
 #include <readdy/common/signals.h>
 #include <readdy/model/Plugin.h>
 #include <readdy/model/actions/Action.h>
-#include <readdy/model/KernelStateModel.h>
-#include <readdy/model/KernelContext.h>
+#include <readdy/model/StateModel.h>
+#include <readdy/model/Context.h>
 #include <readdy/model/observables/ObservableFactory.h>
-#include <readdy/model/_internal/ObservableWrapper.h>
-#include <readdy/model/potentials/PotentialFactory.h>
 #include <readdy/model/actions/ActionFactory.h>
-#include <readdy/model/reactions/ReactionFactory.h>
 #include <readdy/model/topologies/TopologyActionFactory.h>
-#include <readdy/model/compartments/CompartmentFactory.h>
 #include <readdy/model/_internal/Util.h>
 
 NAMESPACE_BEGIN(readdy)
 NAMESPACE_BEGIN(model)
 
-NAMESPACE_BEGIN(detail)
-template<typename T, typename... Args>
-struct get_reaction_dispatcher;
-NAMESPACE_END(detail)
-
 /**
  * Base class of kernels.
- * A Kernel is used to execute Programs, i.e., instances of readdy::plugin::Program.
+ * A Kernel is used to execute Actions, i.e., instances of readdy::model::actions::Action.
  * The kernels can be built in or provided by shared libs in directories, which are loaded by the KernelProvider.
  * Each Kernel has a #name by which it can be accessed in the KernelProvider.
  */
@@ -70,61 +75,44 @@ public:
     /**
      * Constructs a kernel with a given name.
      */
-    explicit Kernel(const std::string &name);
+    explicit Kernel(std::string name) :_name(std::move(name)), _signal() {};
 
     /**
      * The kernel destructor.
      */
-    ~Kernel() override;
+    ~Kernel() override = default;
 
     Kernel(const Kernel &rhs) = delete;
 
     Kernel &operator=(const Kernel &rhs) = delete;
-
-    Kernel(Kernel &&rhs) noexcept;
-
-    Kernel &operator=(Kernel &&rhs) noexcept;
 
     /**
      * This method returns the name of the kernel.
      *
      * @return The name
      */
-    const std::string &getName() const override;
-
-    template<typename ActionType, typename... Args>
-    std::unique_ptr<ActionType> createAction(Args &&... args) const {
-        return getActionFactory().createAction<ActionType>(std::forward<Args>(args)...);
-    }
-
-    template<typename T, typename... Args>
-    std::unique_ptr<T> createObservable(unsigned int stride, Args &&... args) {
-        return getObservableFactory().create<T>(stride, std::forward<Args>(args)...);
-    }
-
-    template<typename T, typename Obs1, typename Obs2>
-    std::unique_ptr<T> createObservable(Obs1 *obs1, Obs2 *obs2, unsigned int stride = 1) {
-        return getObservableFactory().create<T>(obs1, obs2, stride);
-    }
+    const std::string &name() const override {
+        return _name;
+    };
 
     /**
      * Connects an observable to the kernel signal.
      *
      * @return A connection object that, once deleted, releases the connection of the observable.
      */
-    virtual readdy::signals::scoped_connection connectObservable(observables::ObservableBase *observable);
+    virtual readdy::signals::scoped_connection connectObservable(observables::ObservableBase *observable) {
+        observable->initialize(this);
+        return _signal.connect_scoped([observable](const time_step_type t) {
+            observable->callback(t);
+        });
+    };
 
     /**
      * Evaluates all observables.
      */
-    virtual void evaluateObservables(time_step_type t);
-
-    /**
-     * Registers an observable to the kernel signal.
-     */
-    virtual std::tuple<std::unique_ptr<observables::ObservableWrapper>, readdy::signals::scoped_connection>
-    registerObservable(const observables::observable_type &observable, unsigned int stride);
-
+    virtual void evaluateObservables(time_step_type t) {
+        _signal(t);
+    };
 
     /**
      * Returns a vector containing all available program names for this specific kernel instance.
@@ -133,71 +121,32 @@ public:
      * @return The program names.
      */
     virtual std::vector<std::string> getAvailableActions() const {
-        return getActionFactory().getAvailableActions();
+        return actions().getAvailableActions();
     }
 
     /**
      * Adds a particle of the type "type" at position "pos".
      */
-    readdy::model::Particle::id_type addParticle(const std::string &type, const Vec3 &pos);
+    readdy::model::Particle::id_type addParticle(const std::string &type, const Vec3 &pos) {
+        readdy::model::Particle particle {pos[0], pos[1], pos[2], context().particleTypes().idOf(type)};
+        stateModel().addParticle(particle);
+        return particle.id();
+    };
 
-    TopologyParticle createTopologyParticle(const std::string &type, const Vec3 &pos) const;
+    TopologyParticle createTopologyParticle(const std::string &type, const Vec3 &pos) const {
+        const auto& info = context().particleTypes().infoOf(type);
+        if(info.flavor != particleflavor::TOPOLOGY) {
+            throw std::invalid_argument(fmt::format(
+                    "You can only create topology particles of a type that is topology flavored. "
+                    "Type was {}, flavor {}.", type, readdy::model::particleflavor::particleFlavorToString(info.flavor)
+                    ));
+        }
+        return TopologyParticle(pos, info.typeId);
+    };
 
-    virtual std::vector<std::string> getAvailablePotentials() const;
-
-    template<typename T, typename... Args>
-    potentials::Potential::id registerPotential(Args &&... args) {
-        auto pot = getPotentialFactory().createPotential<T>(std::forward<Args>(args)...);
-        return getKernelContext().potentials().add(std::move(pot));
-    }
-
-    template<typename T, typename... Args>
-    compartments::Compartment::id
-    registerCompartment(const std::unordered_map<std::string, std::string> &conversionsMapStr, Args &&... args) {
-        auto conversionsMapInt = _internal::util::transformTypesMap(conversionsMapStr, getKernelContext());
-        auto comp = getCompartmentFactory().createCompartment<T>(conversionsMapInt, std::forward<Args>(args)...);
-        return getKernelContext().registerCompartment(std::move(comp));
-    }
-
-    template<typename T, typename Obs1, typename Obs2>
-    inline std::unique_ptr<T> createCombinedObservable(Obs1 *obs1, Obs2 *obs2, unsigned int stride = 1) const {
-        return getObservableFactory().create(obs1, obs2, stride);
-    }
-
-    template<typename R, typename... Args>
-    inline std::unique_ptr<R> createObservable(unsigned int stride, Args &&... args) const {
-        return getObservableFactory().create(stride, std::forward<Args>(args)...);
-    }
-
-    template<typename T, typename... Args>
-    const short registerReaction(Args &&... args) {
-        return getKernelContext().reactions().add(
-                detail::get_reaction_dispatcher<T, Args...>::impl(this, std::forward<Args>(args)...));
-    }
-
-    bool supportsTopologies() const;
-
-    // todo registerConversion -> creates and register with context
-    std::unique_ptr<reactions::Reaction<1>>
-    createConversionReaction(const std::string &name, const std::string &from, const std::string &to,
-                             scalar rate) const;
-
-    std::unique_ptr<reactions::Reaction<2>>
-    createEnzymaticReaction(const std::string &name, const std::string &catalyst, const std::string &from,
-                            const std::string &to, scalar rate, scalar eductDistance) const;
-
-    std::unique_ptr<reactions::Reaction<1>>
-    createFissionReaction(const std::string &name, const std::string &from, const std::string &to1,
-                          const std::string &to2, scalar rate, scalar productDistance,
-                          scalar weight1 = 0.5, scalar weight2 = 0.5) const;
-
-    std::unique_ptr<reactions::Reaction<2>>
-    createFusionReaction(const std::string &name, const std::string &from1, const std::string &from2,
-                         const std::string &to, scalar rate, scalar eductDistance,
-                         scalar weight1 = 0.5, scalar weight2 = 0.5) const;
-
-    std::unique_ptr<reactions::Reaction<1>>
-    createDecayReaction(const std::string &name, const std::string &type, scalar rate) const;
+    bool supportsTopologies() const {
+        return getTopologyActionFactory() != nullptr;
+    };
 
     /*
      * 
@@ -205,43 +154,33 @@ public:
      * 
      */
 
-    const readdy::model::KernelStateModel &getKernelStateModel() const;
+    virtual const readdy::model::StateModel &stateModel() const = 0;
 
-    readdy::model::KernelStateModel &getKernelStateModel();
+    virtual readdy::model::StateModel &stateModel() = 0;
 
-    const readdy::model::KernelContext &getKernelContext() const;
+    const readdy::model::Context &context() const {
+        return _context;
+    };
 
-    readdy::model::KernelContext &getKernelContext();
+    readdy::model::Context &context() {
+        return _context;
+    };
 
-    const readdy::model::actions::ActionFactory &getActionFactory() const;
+    virtual const readdy::model::actions::ActionFactory &actions() const = 0;
 
-    readdy::model::actions::ActionFactory &getActionFactory();
+    virtual readdy::model::actions::ActionFactory &actions() = 0;
 
-    const readdy::model::potentials::PotentialFactory &getPotentialFactory() const;
+    virtual const readdy::model::observables::ObservableFactory &observe() const = 0;
 
-    readdy::model::potentials::PotentialFactory &getPotentialFactory();
+    virtual readdy::model::observables::ObservableFactory &observe() = 0;
 
-    const readdy::model::reactions::ReactionFactory &getReactionFactory() const;
+    virtual const readdy::model::top::TopologyActionFactory *const getTopologyActionFactory() const = 0;
 
-    readdy::model::reactions::ReactionFactory &getReactionFactory();
+    virtual readdy::model::top::TopologyActionFactory *const getTopologyActionFactory() = 0;
 
-    const readdy::model::compartments::CompartmentFactory &getCompartmentFactory() const;
-
-    readdy::model::compartments::CompartmentFactory &getCompartmentFactory();
-
-    const readdy::model::observables::ObservableFactory &getObservableFactory() const;
-
-    readdy::model::observables::ObservableFactory &getObservableFactory();
-
-    const readdy::model::top::TopologyActionFactory *const getTopologyActionFactory() const;
-
-    readdy::model::top::TopologyActionFactory *const getTopologyActionFactory();
-
-    void expected_n_particles(std::size_t n);
-
-    virtual void initialize();
-
-    virtual void finalize();
+    virtual void initialize() {
+        log::debug(context().describe());
+    };
 
     bool singlePrecision() const noexcept {
         return readdy::single_precision;
@@ -253,71 +192,10 @@ public:
 
 protected:
 
-    particle_type_type getTypeId(const std::string& name) const;
-
-    particle_type_type getTypeIdRequireNormalFlavor(const std::string &) const;
-
-    virtual readdy::model::KernelStateModel &getKernelStateModelInternal() const = 0;
-
-    virtual readdy::model::KernelContext &getKernelContextInternal() const = 0;
-
-    virtual readdy::model::actions::ActionFactory &getActionFactoryInternal() const = 0;
-
-    virtual readdy::model::potentials::PotentialFactory &getPotentialFactoryInternal() const = 0;
-
-    virtual readdy::model::reactions::ReactionFactory &getReactionFactoryInternal() const = 0;
-
-    virtual readdy::model::compartments::CompartmentFactory &getCompartmentFactoryInternal() const = 0;
-
-    virtual readdy::model::observables::ObservableFactory &getObservableFactoryInternal() const;
-
-    virtual readdy::model::top::TopologyActionFactory *getTopologyActionFactoryInternal() const = 0;
-
-
-    struct Impl;
-    std::unique_ptr<Impl> pimpl;
+    model::Context _context;
+    std::string _name;
+    observables::signal_type _signal;
 };
-namespace detail {
-template<typename... Args>
-struct get_reaction_dispatcher<readdy::model::reactions::Conversion, Args...> {
-    static std::unique_ptr<readdy::model::reactions::Reaction<1>>
-    impl(const readdy::model::Kernel *const self, Args &&... args) {
-        return self->createConversionReaction(std::forward<Args>(args)...);
-    }
-};
-
-template<typename... Args>
-struct get_reaction_dispatcher<readdy::model::reactions::Enzymatic, Args...> {
-    static std::unique_ptr<readdy::model::reactions::Reaction<2>>
-    impl(const readdy::model::Kernel *const self, Args &&... args) {
-        return self->createEnzymaticReaction(std::forward<Args>(args)...);
-    }
-};
-
-template<typename... Args>
-struct get_reaction_dispatcher<readdy::model::reactions::Fission, Args...> {
-    static std::unique_ptr<readdy::model::reactions::Reaction<1>>
-    impl(const readdy::model::Kernel *const self, Args &&... args) {
-        return self->createFissionReaction(std::forward<Args>(args)...);
-    }
-};
-
-template<typename... Args>
-struct get_reaction_dispatcher<readdy::model::reactions::Fusion, Args...> {
-    static std::unique_ptr<readdy::model::reactions::Reaction<2>>
-    impl(const readdy::model::Kernel *const self, Args &&... args) {
-        return self->createFusionReaction(std::forward<Args>(args)...);
-    }
-};
-
-template<typename... Args>
-struct get_reaction_dispatcher<readdy::model::reactions::Decay, Args...> {
-    static std::unique_ptr<readdy::model::reactions::Reaction<1>>
-    impl(const readdy::model::Kernel *const self, Args &&... args) {
-        return self->createDecayReaction(std::forward<Args>(args)...);
-    }
-};
-}
 
 NAMESPACE_END(model)
 NAMESPACE_END(readdy)

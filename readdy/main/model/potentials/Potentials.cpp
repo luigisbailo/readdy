@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -29,12 +42,42 @@
  */
 
 #include <readdy/model/Kernel.h>
+#include <readdy/model/potentials/PotentialsOrder1.h>
 
 namespace readdy {
 namespace model {
 namespace potentials {
 
-short Potential::counter = 0;
+std::string PotentialRegistry::describe() const {
+    namespace rus = readdy::util::str;
+    auto find_pot_name = [this](ParticleTypeId type) -> const std::string {
+        for (auto &&t : _types.get().typeMapping()) {
+            if (t.second == type) return t.first;
+        }
+        return "";
+    };
+    std::string description;
+    if (!potentialsOrder1().empty()) {
+        description += fmt::format(" - potentials of order 1:{}", rus::newline);
+        for (const auto &types : potentialsOrder1()) {
+            description += fmt::format("     * for type \"{}\"{}", find_pot_name(types.first), rus::newline);
+            for (auto pot : types.second) {
+                description += fmt::format("         * {}{}", pot->describe(), rus::newline);
+            }
+        }
+    }
+    if (!potentialsOrder2().empty()) {
+        description += fmt::format(" - potentials of order 2:{}", rus::newline);
+        for (const auto &types : potentialsOrder2()) {
+            description += fmt::format(R"(     * for types "{}" and "{}"{})", find_pot_name(std::get<0>(types.first)),
+                                       find_pot_name(std::get<1>(types.first)), rus::newline);
+            for (auto pot : types.second) {
+                description += fmt::format("         * {}{}", pot->describe(), rus::newline);
+            }
+        }
+    }
+    return description;
+}
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -43,7 +86,7 @@ short Potential::counter = 0;
 /////////////////////////////////////////////////////////////////////////////
 
 /**
- * Cube potential
+ * Box potential
  */
 
 Vec3 getMinExtent(const Vec3 &origin, const Vec3 &extent) {
@@ -70,186 +113,35 @@ Vec3 getMaxExtent(const Vec3 &origin, const Vec3 &extent) {
     return result;
 }
 
-Cube::Cube(const std::string &particleType, scalar forceConstant, const Vec3 &origin,
-                             const Vec3 &extent, bool considerParticleRadius)
+Box::Box(particle_type_type particleType, scalar forceConstant, const Vec3 &origin,
+                             const Vec3 &extent)
         : super(particleType), origin(origin), extent(extent), forceConstant(forceConstant),
-          considerParticleRadius(considerParticleRadius), min(getMinExtent(origin, extent)),
-          max(getMaxExtent(origin, extent)), particleRadius(0) {}
+          min(getMinExtent(origin, extent)), max(getMaxExtent(origin, extent)) {}
 
-const Vec3 &Cube::getOrigin() const { return origin; }
-
-const Vec3 &Cube::getExtent() const { return extent; }
-
-scalar Cube::getForceConstant() const { return forceConstant; }
-
-bool Cube::isConsiderParticleRadius() const { return considerParticleRadius; }
-
-scalar Cube::getParticleRadius() const { return particleRadius; }
-
-scalar Cube::getMaximalForce(scalar /*ignored*/) const noexcept {
-    return 0;
+std::string Box::describe() const {
+    return fmt::format("Box potential with origin={}, extent={}, and force constant k={}",
+                       origin, extent, forceConstant);
 }
 
-scalar Cube::getRelevantLengthScale() const noexcept {
-    return std::min(extent[0], std::min(extent[1], extent[2]));
-}
-
-void Cube::configureForType(const ParticleTypeRegistry *const registry, const particle_type_type type) {
-    particleRadius = registry->radius_of(type);
-}
-
-scalar Cube::calculateEnergy(const Vec3 &position) const {
-    auto r = particleRadius;
-    if (!isConsiderParticleRadius()) r = 0;
-
-    scalar energy = 0;
-
-    for (auto i = 0; i < 3; ++i) {
-        if (position[i] - r < min[i] || position[i] + r > max[i]) {
-            if (position[i] - r < min[i]) {
-                energy += 0.5 * forceConstant * (position[i] - r - min[i]) * (position[i] - r - min[i]);
-            } else {
-                energy += 0.5 * forceConstant * (position[i] + r - max[i]) * (position[i] + r - max[i]);
-            }
-        }
-    }
-
-    return energy;
-}
-
-void Cube::calculateForce(Vec3 &force, const Vec3 &position) const {
-    auto r = particleRadius;
-    if (!isConsiderParticleRadius()) r = 0;
-    for (auto i = 0; i < 3; i++) {
-        if (position[i] - r < min[i] || position[i] + r > max[i]) {
-            if (position[i] - r < min[i]) {
-                force[i] += -1 * forceConstant * (position[i] - r - min[i]);
-            } else {
-                force[i] += -1 * forceConstant * (position[i] + r - max[i]);
-            }
-        }
-    }
-}
-
-void Cube::calculateForceAndEnergy(Vec3 &force, scalar &energy, const Vec3 &position) const {
-    energy += calculateEnergy(position);
-    calculateForce(force, position);
-}
-
-std::string Cube::describe() const {
-    std::ostringstream ss;
-    ss << getPotentialName<Cube>() << "[type: " << particleType << ", origin: " << origin
-       << ", extent: " << extent << ", min: " << min << ", max: " << max << ", forceConstant: "
-       << forceConstant << ", considerParticleRadius: " << considerParticleRadius << "]";
-    return ss.str();
+std::string Box::type() const {
+    return getPotentialName<Box>();
 }
 
 /*
  * Sphere Potentials
  */
 
-scalar SphereIn::getRelevantLengthScale() const noexcept {
-    return radius;
+template<>
+std::string Sphere<true>::type() const {
+    return getPotentialName<Sphere<true>>();
 }
 
-scalar SphereIn::getMaximalForce(scalar /*ignored*/) const noexcept {
-    return 0;
+template<>
+std::string Sphere<false>::type() const {
+    return getPotentialName<Sphere<false>>();
 }
 
-SphereIn::SphereIn(const std::string &particleType, scalar f, const Vec3 &origin, scalar radius)
-        : super(particleType), origin(origin), radius(radius), forceConstant(f) {}
-
-void SphereIn::configureForType(const ParticleTypeRegistry *const /*ignored*/, const particle_type_type /*ignored*/) {}
-
-scalar SphereIn::calculateEnergy(const Vec3 &position) const {
-    auto difference = position - origin;
-    scalar distanceFromOrigin = difference.norm();
-    scalar distanceFromSphere = distanceFromOrigin - radius;
-    auto energy = static_cast<scalar>(0.);
-    if (distanceFromSphere > 0) {
-        energy = static_cast<scalar>(0.5 * forceConstant * distanceFromSphere * distanceFromSphere);
-    }
-    return energy;
-}
-
-void SphereIn::calculateForce(Vec3 &force, const Vec3 &position) const {
-    auto difference = position - origin;
-    scalar distanceFromOrigin = difference.norm();
-    scalar distanceFromSphere = distanceFromOrigin - radius;
-    if (distanceFromSphere > 0) {
-        force += -1 * forceConstant * distanceFromSphere * difference / distanceFromOrigin;
-    }
-}
-
-void SphereIn::calculateForceAndEnergy(Vec3 &force, scalar &energy, const Vec3 &position) const {
-    auto difference = position - origin;
-    scalar distanceFromOrigin = difference.norm();
-    scalar distanceFromSphere = distanceFromOrigin - radius;
-    if (distanceFromSphere > 0) {
-        energy += 0.5 * forceConstant * distanceFromSphere * distanceFromSphere;
-        force += -1 * forceConstant * distanceFromSphere * difference / distanceFromOrigin;
-    }
-}
-
-std::string SphereIn::describe() const {
-    std::ostringstream ss;
-    ss << getPotentialName<SphereIn>() << "[type: " << particleType << ", origin: " << origin
-       << ", radius: " << radius << ", forceConstant: " << forceConstant << "]";
-    return ss.str();
-}
-
-SphereOut::SphereOut(const std::string &particleType, scalar forceConstant, const Vec3 &origin, scalar radius)
-        : super(particleType), forceConstant(forceConstant), origin(origin), radius(radius) {}
-
-void SphereOut::configureForType(const ParticleTypeRegistry *const /*ignored*/,
-                                 const PotentialOrder1::particle_type_type /*ignored*/) {}
-
-std::string SphereOut::describe() const {
-    std::ostringstream ss;
-    ss << getPotentialName<SphereIn>() << "[type: " << particleType << ", origin: " << origin
-       << ", radius: " << radius << ", forceConstant: " << forceConstant << "]";
-    return ss.str();
-}
-
-scalar SphereOut::getRelevantLengthScale() const noexcept  {
-    return radius;
-}
-
-scalar SphereOut::getMaximalForce(scalar /*kbt*/) const noexcept {
-    return 0;
-}
-
-scalar SphereOut::calculateEnergy(const Vec3 &position) const {
-    auto difference = position - origin;
-    scalar distanceFromOrigin = difference.norm();
-    scalar distanceFromSphere = distanceFromOrigin - radius;
-    auto energy = static_cast<scalar>(0.);
-    if (distanceFromSphere < 0) {
-        energy = static_cast<scalar>(0.5) * forceConstant * distanceFromSphere * distanceFromSphere;
-    }
-    return energy;
-}
-
-void SphereOut::calculateForce(Vec3 &force, const Vec3 &position) const {
-    auto difference = position - origin;
-    scalar distanceFromOrigin = difference.norm();
-    scalar distanceFromSphere = distanceFromOrigin - radius;
-    if (distanceFromSphere < 0) {
-        force += -1 * forceConstant * distanceFromSphere * difference / distanceFromOrigin;
-    }
-}
-
-void SphereOut::calculateForceAndEnergy(Vec3 &force, scalar &energy, const Vec3 &position) const {
-    auto difference = position - origin;
-    scalar distanceFromOrigin = difference.norm();
-    scalar distanceFromSphere = distanceFromOrigin - radius;
-    if (distanceFromSphere < 0) {
-        energy += 0.5 * forceConstant * distanceFromSphere * distanceFromSphere;
-        force += -1 * forceConstant * distanceFromSphere * difference / distanceFromOrigin;
-    }
-}
-
-SphericalBarrier::SphericalBarrier(const std::string &particleType, const Vec3 &origin, scalar radius, scalar height, scalar width)
+SphericalBarrier::SphericalBarrier(particle_type_type particleType, scalar height, scalar width, const Vec3 &origin, scalar radius)
         : super(particleType), origin(origin), radius(radius), height(height), width(width), r1(radius - width), r2(radius - width / static_cast<scalar>(2.)),
           r3(radius + width / static_cast<scalar>(2.)), r4(radius + width), effectiveForceConstant(static_cast<scalar>(4.) * height / width / width) {
     if (width > radius) {
@@ -257,82 +149,27 @@ SphericalBarrier::SphericalBarrier(const std::string &particleType, const Vec3 &
     }
 }
 
-readdy::scalar SphericalBarrier::getRelevantLengthScale() const noexcept {
-    return width;
-}
-
-readdy::scalar SphericalBarrier::getMaximalForce(readdy::scalar /*kbt*/) const noexcept {
-    return static_cast<scalar>(2. * height / width);
-}
-
-readdy::scalar SphericalBarrier::calculateEnergy(const Vec3 &position) const {
-    const auto difference = position - origin;
-    const auto distance = difference.norm();
-    if (distance < r1) {
-        return static_cast<scalar>(0.);
-    }
-    if (r4 <= distance) {
-        return static_cast<scalar>(0.);
-    }
-    if (r1 <= distance && distance < r2) {
-        return static_cast<scalar>(0.5) * effectiveForceConstant * std::pow(distance - radius + width, static_cast<scalar>(2.));
-    }
-    if (r2 <= distance && distance < r3) {
-        return height - static_cast<scalar>(0.5) * effectiveForceConstant * std::pow(distance - radius, static_cast<scalar>(2.));
-    }
-    if (r3 <= distance && distance < r4) {
-        return static_cast<scalar>(0.5) * effectiveForceConstant * std::pow(distance - radius - width, static_cast<scalar>(2.));
-    }
-    throw std::runtime_error("Thou shalt not pass");
-}
-
-void SphericalBarrier::calculateForce(Vec3 &force, const Vec3 &position) const {
-    const auto difference = position - origin;
-    const auto distance = difference.norm();
-    if (distance < r1) {
-        // nothing happens
-    } else if (r4 <= distance) {
-        // nothing happens
-    } else if (r1 <= distance && distance < r2) {
-        force += - effectiveForceConstant * (distance - radius + width) * difference / distance;
-    } else if (r2 <= distance && distance < r3) {
-        force += effectiveForceConstant * (distance - radius) * difference / distance;
-    } else if (r3 <= distance && distance < r4) {
-        force += - effectiveForceConstant * (distance - radius - width) * difference / distance;
-    } else {
-        throw std::runtime_error("Not gonna happen");
-    }
-}
-
-void SphericalBarrier::calculateForceAndEnergy(Vec3 &force, readdy::scalar &energy, const Vec3 &position) const {
-    const auto difference = position - origin;
-    const auto distance = difference.norm();
-    if (distance < r1) {
-        // nothing happens
-    } else if (r4 <= distance) {
-        // nothing happens
-    } else if (r1 <= distance && distance < r2) {
-        force += - effectiveForceConstant * (distance - radius + width) * difference / distance;
-        energy += 0.5 * effectiveForceConstant * std::pow(distance - radius + width, 2.);
-    } else if (r2 <= distance && distance < r3) {
-        force += effectiveForceConstant * (distance - radius) * difference / distance;
-        energy += height - 0.5 * effectiveForceConstant * std::pow(distance - radius, 2.);
-    } else if (r3 <= distance && distance < r4) {
-        force += - effectiveForceConstant * (distance - radius - width) * difference / distance;
-        energy += 0.5 * effectiveForceConstant * std::pow(distance - radius - width, 2.);
-    } else {
-        throw std::runtime_error("Not gonna happen");
-    }
-}
-
-void SphericalBarrier::configureForType(const ParticleTypeRegistry *const /*ctx*/, const particle_type_type /*type*/) {
-}
-
 std::string SphericalBarrier::describe() const {
-    std::ostringstream ss;
-    ss << getPotentialName<SphericalBarrier>() << "[type: " << particleType << ", origin: " << origin
-       << ", radius: " << radius << ", height(energy): " << height << ", width: " << width << "]";
-    return ss.str();
+    return fmt::format("Spherical barrier potential with origin={}, radius={}, height(energy)={}, and width={}",
+                       origin, radius, height, width);
+}
+
+std::string SphericalBarrier::type() const {
+    return getPotentialName<SphericalBarrier>();
+}
+
+/**
+ * Cylindrical potentials
+ */
+
+template<>
+std::string Cylinder<true>::type() const {
+    return getPotentialName<Cylinder<true>>();
+}
+
+template<>
+std::string Cylinder<false>::type() const {
+    return getPotentialName<Cylinder<false>>();
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -345,175 +182,27 @@ std::string SphericalBarrier::describe() const {
  * Harmonic repulsion
  */
 
-HarmonicRepulsion::HarmonicRepulsion(const std::string &type1, const std::string &type2, scalar forceConstant)
-        : super(type1, type2), forceConstant(forceConstant), sumOfParticleRadii(-1), sumOfParticleRadiiSquared(-1) {}
-
-scalar HarmonicRepulsion::getSumOfParticleRadii() const {
-    return sumOfParticleRadii;
-}
-
-scalar HarmonicRepulsion::getSumOfParticleRadiiSquared() const {
-    return sumOfParticleRadiiSquared;
-}
-
-scalar HarmonicRepulsion::getForceConstant() const {
-    return forceConstant;
-}
-
-scalar HarmonicRepulsion::getMaximalForce(scalar /*kbt*/) const noexcept {
-    return forceConstant * getCutoffRadius();
-}
-
-void HarmonicRepulsion::configureForTypes(const ParticleTypeRegistry *const registry, particle_type_type type1,
-                                          particle_type_type type2) {
-    auto r1 = registry->radius_of(type1);
-    auto r2 = registry->radius_of(type2);
-    sumOfParticleRadii = r1 + r2;
-    sumOfParticleRadiiSquared = sumOfParticleRadii * sumOfParticleRadii;
-}
-
-scalar HarmonicRepulsion::calculateEnergy(const Vec3 &x_ij) const {
-    auto distanceSquared = x_ij * x_ij;
-    if (distanceSquared < getSumOfParticleRadiiSquared()) {
-        distanceSquared = std::sqrt(distanceSquared);
-        distanceSquared -= getSumOfParticleRadii();
-        distanceSquared *= distanceSquared;
-        return static_cast<scalar>(0.5) * distanceSquared * getForceConstant();
-    }
-    return 0;
-}
-
-void HarmonicRepulsion::calculateForce(Vec3 &force, const Vec3 &x_ij) const {
-    auto squared = x_ij * x_ij;
-    if (squared < getSumOfParticleRadiiSquared() && squared > 0) {
-        squared = std::sqrt(squared);
-        force = (getForceConstant() * (squared - getSumOfParticleRadii())) / squared * x_ij;
-    } else {
-        force = {0, 0, 0};
-    }
-}
-
-void HarmonicRepulsion::calculateForceAndEnergy(Vec3 &force, scalar &energy, const Vec3 &x_ij) const {
-    auto squared = x_ij * x_ij;
-    if (squared < getSumOfParticleRadiiSquared() && squared > 0) {
-        squared = std::sqrt(squared);
-        energy += 0.5 * getForceConstant() * std::pow(squared - getSumOfParticleRadii(), 2);
-        force = (getForceConstant() * (squared - getSumOfParticleRadii())) / squared * x_ij;
-    } else {
-        force = {0, 0, 0};
-    }
-}
-
-scalar HarmonicRepulsion::getCutoffRadius() const {
-    return sumOfParticleRadii;
-}
-
-scalar HarmonicRepulsion::getCutoffRadiusSquared() const {
-    return sumOfParticleRadiiSquared;
-}
-
 std::string HarmonicRepulsion::describe() const {
-    std::ostringstream ss;
-    ss << getPotentialName<HarmonicRepulsion>() << "[type1: " << particleType1 << ", type2: "
-       << particleType2 << ", forceConstant: " << forceConstant << "]";
-    return ss.str();
+    return fmt::format("Harmonic repulsion with force constant k={}", _forceConstant);
+}
+
+std::string HarmonicRepulsion::type() const {
+    return getPotentialName<HarmonicRepulsion>();
 }
 
 /**
  * Weak interaction piecewise harmonic
  */
 
-scalar WeakInteractionPiecewiseHarmonic::getMaximalForce(scalar /*kbt*/) const noexcept {
-    scalar fMax1 = forceConstant * conf.desiredParticleDistance;
-    scalar fMax2 = 2 * conf.depthAtDesiredDistance *
-                   (conf.noInteractionDistance - conf.desiredParticleDistance);
-    return std::max(fMax1, fMax2);
-}
-
-
-void WeakInteractionPiecewiseHarmonic::configureForTypes(const ParticleTypeRegistry *const /*unused*/, particle_type_type /*type1*/,
-                                                         particle_type_type /*type2*/) {}
-
-WeakInteractionPiecewiseHarmonic::WeakInteractionPiecewiseHarmonic(const std::string &particleType1,
-                                                                   const std::string &particleType2,
-                                                                   const scalar forceConstant,
-                                                                   const Configuration &config)
-        : super(particleType1, particleType2), forceConstant(forceConstant), conf(config) {}
-
-std::ostream &operator<<(std::ostream &os, const WeakInteractionPiecewiseHarmonic::Configuration &configuration) {
-    os << "desiredParticleDistance: " << configuration.desiredParticleDistance << " depthAtDesiredDistance: "
-       << configuration.depthAtDesiredDistance << " noInteractionDistance: " << configuration.noInteractionDistance;
-    return os;
-}
-
-scalar WeakInteractionPiecewiseHarmonic::calculateEnergy(const Vec3 &x_ij) const {
-    const auto dist = std::sqrt(x_ij * x_ij);
-    const auto len_part2 = conf.noInteractionDistance - conf.desiredParticleDistance;
-    if (dist < conf.desiredParticleDistance) {
-        // repulsive as we are closer than the desired distance
-        return static_cast<scalar>(.5) * forceConstant * (dist - conf.desiredParticleDistance) * (dist - conf.desiredParticleDistance) -
-               conf.depthAtDesiredDistance;
-    }
-    // attractive as we are further (but not too far) apart than the desired distance
-    if (dist < conf.desiredParticleDistance + c_::half * len_part2) {
-        return c_::half * conf.depthAtDesiredDistance * (c_::one / (c_::half * len_part2)) * (c_::one / (c_::half * len_part2)) *
-               (dist - conf.desiredParticleDistance) * (dist - conf.desiredParticleDistance) -
-               conf.depthAtDesiredDistance;
-    }
-    // if we are not too far apart but still further than in the previous case, attractive
-    if (dist < conf.noInteractionDistance) {
-        return -c_::half * conf.depthAtDesiredDistance * (c_::one / (c_::half * len_part2)) * (c_::one / (c_::half * len_part2)) *
-               (dist - conf.noInteractionDistance) * (dist - conf.noInteractionDistance);
-    }
-    return 0;
-}
-
-void WeakInteractionPiecewiseHarmonic::calculateForce(Vec3 &force, const Vec3 &x_ij) const {
-    const auto dist = std::sqrt(x_ij * x_ij);
-    const auto len_part2 = conf.noInteractionDistance - conf.desiredParticleDistance;
-    scalar  factor = 0;
-    if (dist < conf.desiredParticleDistance) {
-        // repulsive as we are closer than the desired distance
-        factor = -1 * forceConstant * (conf.desiredParticleDistance - dist);
-    } else {
-        // attractive as we are further (but not too far) apart than the desired distance
-        if (dist < conf.desiredParticleDistance + .5 * len_part2) {
-            factor = -c_::one * conf.depthAtDesiredDistance * (c_::one / (c_::half * len_part2)) * (c_::one / (c_::half * len_part2)) *
-                     (conf.desiredParticleDistance - dist);
-        } else {
-            // if we are not too far apart but still further than in the previous case, attractive
-            if (dist < conf.noInteractionDistance) {
-                factor = conf.depthAtDesiredDistance * (c_::one / (c_::half * len_part2)) * (c_::one / (c_::half * len_part2)) *
-                         (conf.noInteractionDistance - dist);
-            }
-        }
-    }
-    if (dist > 0 && factor != 0) {
-        force = factor * x_ij / dist;
-    } else {
-        force = {0, 0, 0};
-    }
-}
-
-void WeakInteractionPiecewiseHarmonic::calculateForceAndEnergy(Vec3 &force, scalar  &energy, const Vec3 &x_ij) const {
-    energy += calculateEnergy(x_ij);
-    calculateForce(force, x_ij);
-}
-
-scalar  WeakInteractionPiecewiseHarmonic::getCutoffRadius() const {
-    return conf.noInteractionDistance;
-}
-
-scalar  WeakInteractionPiecewiseHarmonic::getCutoffRadiusSquared() const {
-    return conf.noInteractionDistanceSquared;
-}
-
 std::string WeakInteractionPiecewiseHarmonic::describe() const {
-    std::ostringstream ss;
-    ss << getPotentialName<HarmonicRepulsion>() << "[type1: " << particleType1 << ", type2: "
-       << particleType2 << ", configuration[" << conf
-       << "], forceConstant: " << forceConstant << "]";
-    return ss.str();
+    return fmt::format("Weak interaction piecewise harmonic potential with force constant k={}, desired distance={}, "
+                               "depth={}, and cutoff={}",
+                       forceConstant, conf.desiredParticleDistance, conf.depthAtDesiredDistance,
+                       conf.noInteractionDistance);
+}
+
+std::string WeakInteractionPiecewiseHarmonic::type() const {
+    return getPotentialName<HarmonicRepulsion>();
 }
 
 WeakInteractionPiecewiseHarmonic::Configuration::Configuration(const scalar  desiredParticleDistance,
@@ -523,10 +212,10 @@ WeakInteractionPiecewiseHarmonic::Configuration::Configuration(const scalar  des
           noInteractionDistance(noInteractionDistance),
           noInteractionDistanceSquared(noInteractionDistance * noInteractionDistance) {}
 
-LennardJones::LennardJones(const std::string &particleType1, const std::string &particleType2,
+LennardJones::LennardJones(particle_type_type type1, particle_type_type type2,
                            unsigned int m, unsigned int n, scalar  cutoffDistance,
                            bool shift, scalar  epsilon, scalar  sigma)
-        : super(particleType1, particleType2), m(m), n(n),
+        : super(type1, type2), m(m), n(n),
           cutoffDistance(cutoffDistance), shift(shift), epsilon(epsilon), sigma(sigma),
           cutoffDistanceSquared(cutoffDistance * cutoffDistance) {
     if (m <= n) {
@@ -539,63 +228,21 @@ LennardJones::LennardJones(const std::string &particleType1, const std::string &
     k = -epsilon / (std::pow(sigma / r_min, dm) - std::pow(sigma / r_min, dn));
 }
 
-void
-LennardJones::configureForTypes(const ParticleTypeRegistry *const /*context*/, particle_type_type /*type1*/,
-                                particle_type_type /*type2*/) {
-
-}
-
-scalar  LennardJones::calculateEnergy(const Vec3 &x_ij) const {
-    const auto r = x_ij.norm();
-    if (r > cutoffDistance) return 0;
-    return shift ? energy(r) - energy(cutoffDistance) : energy(r);
-}
-
-void LennardJones::calculateForce(Vec3 &force, const Vec3 &x_ij) const {
-    const auto norm = x_ij.norm();
-    if(norm <= cutoffDistance) {
-        force -= k * ( 1 / (sigma * sigma)) * (m * std::pow(sigma / norm, m + 2) - n * std::pow(sigma / norm, n + 2)) *
-                 x_ij;
-    }
-}
-
-void LennardJones::calculateForceAndEnergy(Vec3 &force, scalar  &energy, const Vec3 &x_ij) const {
-    energy += calculateEnergy(x_ij);
-    calculateForce(force, x_ij);
-}
-
-scalar LennardJones::getCutoffRadius() const {
-    return cutoffDistance;
-}
-
-scalar LennardJones::getCutoffRadiusSquared() const {
-    return cutoffDistanceSquared;
-}
-
-scalar LennardJones::energy(scalar  r) const {
-    return k * (std::pow(sigma / r, m) - std::pow(sigma / r, n));
-}
-
-scalar LennardJones::getMaximalForce(scalar /*kbt*/) const noexcept {
-    return 0;
-}
-
 std::string LennardJones::describe() const {
-    std::ostringstream ss;
-    ss << getPotentialName<LennardJones>() << "[m: " << m << " n: "
-       << n << " cutoffDistance: " << cutoffDistance << " shift: " << shift
-       << " epsilon: " << epsilon << " k: " << k << "]";
-    return ss.str();
+    std::string withOrWithout = shift ? "with" : "without";
+    return fmt::format("{}-{}-Lennard-Jones potential with cutoff={}, epsilon={}, k={}, and {} energy shift",
+                       m, n, cutoffDistance, epsilon, k, withOrWithout);
 }
 
-LennardJones::~LennardJones() = default;
+std::string LennardJones::type() const {
+    return getPotentialName<LennardJones>();
+}
 
-
-ScreenedElectrostatics::ScreenedElectrostatics(const std::string &particleType1, const std::string &particleType2,
+ScreenedElectrostatics::ScreenedElectrostatics(particle_type_type type1, particle_type_type type2,
                                                scalar  electrostaticStrength, scalar  inverseScreeningDepth,
                                                scalar  repulsionStrength, scalar  repulsionDistance, unsigned int exponent,
                                                scalar  cutoff)
-        : super(particleType1, particleType2), electrostaticStrength(electrostaticStrength), inverseScreeningDepth(inverseScreeningDepth),
+        : super(type1, type2), electrostaticStrength(electrostaticStrength), inverseScreeningDepth(inverseScreeningDepth),
           repulsionStrength(repulsionStrength), repulsionDistance(repulsionDistance), exponent(exponent), cutoff(cutoff),
           cutoffSquared(cutoff * cutoff) {
     if (inverseScreeningDepth < 0) {
@@ -612,55 +259,16 @@ ScreenedElectrostatics::ScreenedElectrostatics(const std::string &particleType1,
     }
 }
 
-void
-ScreenedElectrostatics::configureForTypes(const ParticleTypeRegistry *const /*context*/, particle_type_type /*type1*/,
-                                          particle_type_type /*type2*/) {
-
-}
-
-scalar ScreenedElectrostatics::getMaximalForce(scalar /*kbt*/) const noexcept {
-    return 0;
-}
-
-scalar ScreenedElectrostatics::getCutoffRadius() const {
-    return cutoff;
-}
-
-scalar ScreenedElectrostatics::getCutoffRadiusSquared() const {
-    return cutoffSquared;
-}
-
 std::string ScreenedElectrostatics::describe() const {
-    std::ostringstream ss;
-    ss << getPotentialName<ScreenedElectrostatics>() << "[electrostaticStrength: " << electrostaticStrength
-       << " inverseScreeningDepth: " << inverseScreeningDepth
-       << " repulsionStrength: " << repulsionStrength << " repulsionDistance: " << repulsionDistance
-       << " exponent: " << exponent
-       << " cutoff: " << cutoff << "]";
-    return ss.str();
+    return fmt::format("Screened electrostatics potential with electrostatic strength={}, inverse screening depth={}, "
+                               "repulsion strength={}, repulsion distance={}, exponent={}, and cutoff={}",
+                       electrostaticStrength, inverseScreeningDepth, repulsionStrength, repulsionDistance,
+                       exponent, cutoff);
 }
 
-scalar  ScreenedElectrostatics::calculateEnergy(const Vec3 &x_ij) const {
-    const scalar  distance = x_ij.norm();
-    scalar  result = electrostaticStrength * std::exp(-inverseScreeningDepth * distance) / distance;
-    result += repulsionStrength * std::pow(repulsionDistance / distance, exponent);
-    return result;
+std::string ScreenedElectrostatics::type() const {
+    return getPotentialName<ScreenedElectrostatics>();
 }
-
-void ScreenedElectrostatics::calculateForce(Vec3 &force, const Vec3 &x_ij) const {
-    auto distance = x_ij.norm();
-    auto forceFactor = electrostaticStrength * std::exp(-inverseScreeningDepth * distance);
-    forceFactor *= (inverseScreeningDepth / distance + c_::one / std::pow(distance, c_::two));
-    forceFactor += repulsionStrength * exponent / repulsionDistance * std::pow( repulsionDistance / distance, exponent + c_::one);
-    force += forceFactor * (- c_::one * x_ij / distance);
-}
-
-void ScreenedElectrostatics::calculateForceAndEnergy(Vec3 &force, scalar  &energy, const Vec3 &x_ij) const {
-    calculateForce(force, x_ij);
-    energy += calculateEnergy(x_ij);
-}
-
-ScreenedElectrostatics::~ScreenedElectrostatics() = default;
 
 }
 }

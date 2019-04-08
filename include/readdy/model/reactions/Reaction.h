@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -37,10 +50,10 @@
 #include <string>
 #include <ostream>
 #include <utility>
+#include <memory>
 #include <spdlog/fmt/ostr.h>
 #include <readdy/model/Particle.h>
 #include <readdy/model/RandomProvider.h>
-#include <readdy/common/make_unique.h>
 
 NAMESPACE_BEGIN(readdy)
 NAMESPACE_BEGIN(model)
@@ -48,118 +61,116 @@ NAMESPACE_BEGIN(reactions)
 
 enum class ReactionType { Conversion, Fusion, Fission, Enzymatic, Decay };
 
-std::ostream& operator<<(std::ostream& os, const ReactionType& reactionType);
+inline std::ostream& operator<<(std::ostream& os, const ReactionType& reactionType) {
+    switch (reactionType) {
+        case ReactionType::Decay: os << "Decay"; break;
+        case ReactionType::Conversion: os << "Conversion"; break;
+        case ReactionType::Fusion: os << "Fusion"; break;
+        case ReactionType::Fission: os << "Fission"; break;
+        case ReactionType::Enzymatic: os << "Enzymatic"; break;
+    }
+    return os;
+}
 
-template<unsigned int N_EDUCTS>
 class Reaction {
-protected:
-    static short counter;
-    using particle_type_type = readdy::model::Particle::type_type;
 public:
+    using ReactionId = unsigned short;
 
-    using rnd_normal = std::function<Vec3(const scalar, const scalar)>;
-    // static constexpr unsigned int n_educts = N_EDUCTS;
-
-    Reaction(std::string name, const scalar rate, const scalar eductDistance,
-             const scalar productDistance, const unsigned int n_products) :
-            name(std::move(name)),
-            id(counter++),
-            rate(rate),
-            eductDistance(eductDistance),
-            eductDistanceSquared(eductDistance * eductDistance),
-            productDistance(productDistance),
-            _n_products(n_products) {}
-
-    Reaction(const Reaction&) = default;
-    Reaction& operator=(const Reaction&) = default;
-    Reaction(Reaction&&) = default;
-    Reaction& operator=(Reaction&&) = default;
+    Reaction(std::string name, scalar rate, scalar eductDistance, scalar productDistance, std::uint8_t nEducts,
+             std::uint8_t nProducts)
+            : _name(std::move(name)), _id(counter++), _rate(rate), _eductDistance(eductDistance),
+              _eductDistanceSquared(eductDistance * eductDistance), _productDistance(productDistance),
+              _nEducts(nEducts), _nProducts(nProducts) {};
 
     virtual ~Reaction() = default;
 
-    virtual const ReactionType getType() = 0;
+    virtual const ReactionType type() const = 0;
 
-    const std::string &getName() const {
-        return name;
+    const std::string &name() const {
+        return _name;
     }
 
-    const short getId() const {
-        return id;
+    const ReactionId id() const {
+        return _id;
     }
 
-    const scalar getRate() const {
-        return rate;
+    const scalar rate() const {
+        return _rate;
     }
 
-    const unsigned int getNEducts() const {
-        return _n_educts;
+    scalar &rate() {
+        return _rate;
     }
 
-    const unsigned int getNProducts() const {
-        return _n_products;
+    std::uint8_t nEducts() const {
+        return _nEducts;
     }
 
-    const scalar getEductDistance() const {
-        return eductDistance;
+    std::uint8_t nProducts() const {
+        return _nProducts;
     }
 
-    const scalar getEductDistanceSquared() const {
-        return eductDistanceSquared;
+    const scalar eductDistance() const {
+        return _eductDistance;
     }
 
-    const scalar getProductDistance() const {
-        return productDistance;
+    const scalar eductDistanceSquared() const {
+        return _eductDistanceSquared;
+    }
+
+    const scalar productDistance() const {
+        return _productDistance;
     }
 
     friend std::ostream &operator<<(std::ostream &os, const Reaction &reaction) {
-        os << "Reaction(\"" << reaction.name << "\", N_Educts=" << reaction._n_educts << ", N_Products="
-           << reaction._n_products << ", (";
-        for (unsigned int i = 0; i < reaction._n_educts; i++) {
+        os << "Reaction(\"" << reaction._name << "\", N_Educts=" << std::to_string(reaction._nEducts) << ", N_Products="
+           << std::to_string(reaction._nProducts) << ", (";
+        for (unsigned int i = 0; i < reaction._nEducts; i++) {
             if (i > 0) os << ",";
-            os << reaction.educts[i];
+            os << reaction._educts[i];
         }
         os << ") -> (";
-        for (unsigned int i = 0; i < reaction._n_products; i++) {
+        for (unsigned int i = 0; i < reaction._nProducts; i++) {
             if (i > 0) os << ",";
-            os << reaction.products[i];
+            os << reaction._products[i];
         }
-        os << "), rate=" << reaction.rate << ", eductDist=" << reaction.eductDistance << ", prodDist="
-           << reaction.productDistance << ")";
+        os << "), rate=" << reaction._rate << ", eductDist=" << reaction._eductDistance << ", prodDist="
+           << reaction._productDistance << ")";
         return os;
     }
 
-    const std::array<particle_type_type, N_EDUCTS> &getEducts() const {
-        return educts;
+    const std::array<ParticleTypeId, 2> &educts() const {
+        return _educts;
+    };
+
+    const std::array<ParticleTypeId, 2> &products() const {
+        return _products;
+    };
+
+    const scalar weight1() const {
+        return _weight1;
     }
 
-    const std::array<particle_type_type, 2> &getProducts() const {
-        return products;
-    }
-
-    const scalar getWeight1() const {
-        return weight1;
-    }
-
-    const scalar getWeight2() const {
-        return weight2;
+    const scalar weight2() const {
+        return _weight2;
     }
 
 
 protected:
-    const unsigned int _n_educts = N_EDUCTS;
-    const unsigned int _n_products;
-    std::array<particle_type_type, N_EDUCTS> educts;
-    std::array<particle_type_type, 2> products {{0, 0}};
-    const std::string name;
-    const short id;
-    const scalar rate;
-    const scalar eductDistance, eductDistanceSquared;
-    const scalar productDistance;
+    static ReactionId counter;
 
-    scalar weight1 = .5, weight2 = .5;
+    std::uint8_t _nEducts;
+    std::uint8_t _nProducts;
+    std::array<ParticleTypeId, 2> _educts {{0, 0}};
+    std::array<ParticleTypeId, 2> _products {{0, 0}};
+    std::string _name;
+    ReactionId _id;
+    scalar _rate;
+    scalar _eductDistance, _eductDistanceSquared;
+    scalar _productDistance;
+
+    scalar _weight1 = .5, _weight2 = .5;
 };
-
-template<unsigned int N> short Reaction<N>::counter = 0;
 
 NAMESPACE_END(reactions)
 NAMESPACE_END(model)

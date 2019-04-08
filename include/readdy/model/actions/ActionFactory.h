@@ -1,32 +1,46 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
 /**
- * This file contains the declaration of the program factory. Internally, the factory is simply a map of
- * string -> std::function<Program*()>, which then can get called.
+ * This file contains the declaration of the action factory. Internally, the factory is simply a map of
+ * string -> std::function<Action*()>, which then can get called.
  *
- * @file ProgramFactory.h
- * @brief Declaration of the program factory.
+ * @file ActionFactory.h
+ * @brief Declaration of the action factory.
  * @author clonker
+ * @author chrisfroe
  * @date 08.04.16
  */
 
@@ -45,110 +59,72 @@ NAMESPACE_BEGIN(actions)
 class ActionFactory {
 public:
 
-    template<typename R, typename... Args>
-    std::unique_ptr<R> createAction(Args &&... args) const {
-        return std::unique_ptr<R>(get_dispatcher<R, Args...>::impl(this, std::forward<Args>(args)...));
-    }
-
     virtual std::vector<std::string> getAvailableActions() const {
         return {
                 getActionName<AddParticles>(), getActionName<EulerBDIntegrator>(), getActionName<CalculateForces>(),
-                getActionName<UpdateNeighborList>(), getActionName<reactions::UncontrolledApproximation>(),
-                getActionName<reactions::Gillespie>(), getActionName<reactions::GillespieParallel>(),
-                getActionName<reactions::NextSubvolumes>(), getActionName<top::EvaluateTopologyReactions>()
+                getActionName<CreateNeighborList>(), getActionName<UpdateNeighborList>(),
+                getActionName<ClearNeighborList>(), getActionName<reactions::UncontrolledApproximation>(),
+                getActionName<reactions::Gillespie>(), getActionName<reactions::DetailedBalance>(),
+                getActionName<top::EvaluateTopologyReactions>(), getActionName<MdgfrdIntegrator>()
         };
     }
 
     /*
      * Convenience stuff
      */
-    std::unique_ptr<TimeStepDependentAction> createIntegrator(const std::string& name, scalar timeStep) {
-        if(name == getActionName<EulerBDIntegrator>()) {
-            return std::unique_ptr<TimeStepDependentAction>(createEulerBDIntegrator(timeStep));
+    std::unique_ptr<TimeStepDependentAction> createIntegrator(const std::string &name, scalar timeStep) {
+        if (name == getActionName<EulerBDIntegrator>()) {
+            return std::unique_ptr<TimeStepDependentAction>(eulerBDIntegrator(timeStep));
         }
-        log::critical("Requested integrator \"{}\" is not available, returning nullptr", name);
-        return nullptr;
+        throw std::invalid_argument("Requested integrator " + name + " is not available.");
     }
 
-    std::unique_ptr<TimeStepDependentAction> createReactionScheduler(const std::string& name, scalar timeStep) {
-        if(name == getActionName<reactions::Gillespie>()) {
-            return std::unique_ptr<TimeStepDependentAction>(createGillespie(timeStep));
+    std::unique_ptr<TimeStepDependentAction> createReactionScheduler(const std::string &name, scalar timeStep) {
+        if (name == getActionName<reactions::Gillespie>()) {
+            return std::unique_ptr<TimeStepDependentAction>(gillespie(timeStep));
         }
-        if(name == getActionName<reactions::GillespieParallel>()) {
-            return std::unique_ptr<TimeStepDependentAction>(createGillespieParallel(timeStep));
+        if (name == getActionName<reactions::UncontrolledApproximation>()) {
+            return std::unique_ptr<TimeStepDependentAction>(uncontrolledApproximation(timeStep));
         }
-        if(name == getActionName<reactions::NextSubvolumes>()) {
-            return std::unique_ptr<TimeStepDependentAction>(createNextSubvolumes(timeStep));
+        if (name == getActionName<reactions::DetailedBalance>()) {
+            return std::unique_ptr<TimeStepDependentAction>(detailedBalance(timeStep));
         }
-        if(name == getActionName<reactions::UncontrolledApproximation>()) {
-            return std::unique_ptr<TimeStepDependentAction>(createUncontrolledApproximation(timeStep));
-        }
-        log::critical("Requested reaction scheduler \"{}\" is not available, returning nullptr", name);
-        return nullptr;
+        throw std::invalid_argument("Requested reaction scheduler " + name + " is not available.");
     }
 
-protected:
-    
-    virtual AddParticles *createAddParticles(const std::vector<Particle> &particles) const = 0;
-    AddParticles *createAddParticles(const Particle &particle) const {
-        return createAddParticles(std::vector<Particle>{particle});
-    };
+    virtual std::unique_ptr<AddParticles> addParticles(const std::vector<Particle> &particles) const = 0;
 
-    virtual EulerBDIntegrator *createEulerBDIntegrator(scalar timeStep) const = 0;
+    std::unique_ptr<AddParticles> addParticles(const Particle &particle) const {
+        return addParticles(std::vector<Particle>{particle});
+    }
 
-    virtual CalculateForces *createCalculateForces() const = 0;
+    virtual std::unique_ptr<EulerBDIntegrator> eulerBDIntegrator(scalar timeStep) const = 0;
 
-    virtual UpdateNeighborList *createUpdateNeighborList(UpdateNeighborList::Operation, scalar skinSize) const = 0;
-    UpdateNeighborList *createUpdateNeighborList(UpdateNeighborList::Operation op) const {
-        return createUpdateNeighborList(op, -1);
-    };
-    UpdateNeighborList *createUpdateNeighborList() const {
-        return createUpdateNeighborList(UpdateNeighborList::Operation::create, -1);
-    };
+    virtual std::unique_ptr<MdgfrdIntegrator> mdgfrdIntegrator(scalar timeStep) const = 0;
 
-    virtual EvaluateCompartments *createEvaluateCompartments() const = 0;
+    virtual std::unique_ptr<readdy::model::actions::CalculateForces> calculateForces() const = 0;
 
-    virtual reactions::UncontrolledApproximation *createUncontrolledApproximation(scalar timeStep) const = 0;
+    virtual std::unique_ptr<CreateNeighborList> createNeighborList(scalar interactionDistance) const = 0;
 
-    virtual reactions::Gillespie *createGillespie(scalar timeStep) const = 0;
+    virtual std::unique_ptr<UpdateNeighborList> updateNeighborList() const = 0;
 
-    virtual reactions::GillespieParallel *createGillespieParallel(scalar timeStep) const = 0;
+    virtual std::unique_ptr<ClearNeighborList> clearNeighborList() const = 0;
 
-    virtual reactions::NextSubvolumes *createNextSubvolumes(scalar timeStep) const = 0;
+    virtual std::unique_ptr<EvaluateCompartments> evaluateCompartments() const = 0;
 
-    virtual top::EvaluateTopologyReactions *createEvaluateTopologyReactions(scalar timeStep) const = 0;
+    virtual std::unique_ptr<reactions::UncontrolledApproximation>
+    uncontrolledApproximation(scalar timeStep) const = 0;
 
-    template<typename T, typename... Args>
-    struct get_dispatcher;
+    virtual std::unique_ptr<reactions::Gillespie>
+    gillespie(scalar timeStep) const = 0;
 
-    template<typename T, typename... Args>
-    struct get_dispatcher {
-        static T *impl(const ActionFactory *self, Args &&... args) {
-            // this only invokes the normal constructor
-            return new T(std::forward<Args>(args)...);
-        };
-    };
+    virtual std::unique_ptr<reactions::DetailedBalance>
+    detailedBalance(scalar timeStep) const = 0;
+
+    virtual std::unique_ptr<top::EvaluateTopologyReactions> evaluateTopologyReactions(scalar timeStep) const = 0;
+
 };
 
-READDY_CREATE_FACTORY_DISPATCHER(ActionFactory, AddParticles)
-
-READDY_CREATE_FACTORY_DISPATCHER(ActionFactory, EulerBDIntegrator)
-
-READDY_CREATE_FACTORY_DISPATCHER(ActionFactory, CalculateForces)
-
-READDY_CREATE_FACTORY_DISPATCHER(ActionFactory, UpdateNeighborList)
-
-READDY_CREATE_FACTORY_DISPATCHER(ActionFactory, EvaluateCompartments)
-
-READDY_CREATE_FACTORY_DISPATCHER2(ActionFactory, reactions, UncontrolledApproximation)
-
-READDY_CREATE_FACTORY_DISPATCHER2(ActionFactory, reactions, Gillespie)
-
-READDY_CREATE_FACTORY_DISPATCHER2(ActionFactory, reactions, GillespieParallel)
-
-READDY_CREATE_FACTORY_DISPATCHER2(ActionFactory, reactions, NextSubvolumes)
-
-READDY_CREATE_FACTORY_DISPATCHER2(ActionFactory, top, EvaluateTopologyReactions)
 
 NAMESPACE_END(actions)
 NAMESPACE_END(model)

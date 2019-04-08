@@ -36,6 +36,7 @@ libraries/external
 # Output directory and build dirs
 build
 bin/*
+docs/sphinx/build
 
 # python build temporaries
 *.egg-info
@@ -51,3 +52,6 @@ bin/*
 .idea
 
 cmake-build-*
+
+# ignore configured version file
+wrappers/python/src/python/readdy/_version.py

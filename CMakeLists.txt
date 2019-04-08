@@ -1,24 +1,36 @@
-#####################################################################
-# Copyright (c) 2016 Computational Molecular Biology Group,         #
-#                    Freie Universitaet Berlin (GER)                #
-#                                                                   #
-# This file is part of ReaDDy.                                      #
-#                                                                   #
-# ReaDDy is free software: you can redistribute it and/or modify    #
-# it under the terms of the GNU Lesser General Public License as    #
-# published by the Free Software Foundation, either version 3 of    #
-# the License, or (at your option) any later version.               #
-#                                                                   #
-# This program is distributed in the hope that it will be useful,   #
-# but WITHOUT ANY WARRANTY; without even the implied warranty of    #
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     #
-# GNU Lesser General Public License for more details.               #
-#                                                                   #
-# You should have received a copy of the GNU Lesser General         #
-# Public License along with this program. If not, see               #
-# <http://www.gnu.org/licenses/>.                                   #
-#####################################################################
-
+####################################################################
+# Copyright © 2018 Computational Molecular Biology Group,          #
+#                  Freie Universität Berlin (GER)                  #
+#                                                                  #
+# Redistribution and use in source and binary forms, with or       #
+# without modification, are permitted provided that the            #
+# following conditions are met:                                    #
+#  1. Redistributions of source code must retain the above         #
+#     copyright notice, this list of conditions and the            #
+#     following disclaimer.                                        #
+#  2. Redistributions in binary form must reproduce the above      #
+#     copyright notice, this list of conditions and the following  #
+#     disclaimer in the documentation and/or other materials       #
+#     provided with the distribution.                              #
+#  3. Neither the name of the copyright holder nor the names of    #
+#     its contributors may be used to endorse or promote products  #
+#     derived from this software without specific                  #
+#     prior written permission.                                    #
+#                                                                  #
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           #
+# CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      #
+# INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         #
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         #
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            #
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     #
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         #
+# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; #
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER #
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      #
+# STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    #
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      #
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       #
+####################################################################
 
 PROJECT(readdy_main C CXX)
 
@@ -49,18 +61,6 @@ SET(READDY_GENERATE_DOCUMENTATION_TARGET_ONLY OFF CACHE BOOL "If set to true, th
 # log configuration variables of interest
 SET(READDY_LOG_CMAKE_CONFIGURATION OFF CACHE BOOL "If turned on, the status of relevant cmake variables is logged at configuration time.")
 
-# include examples
-SET(READDY_BUILD_EXAMPLES OFF CACHE BOOL "Whether to build example targets")
-
-#####################################
-#                                   #
-# Advanced cache variables          #
-#                                   #
-#####################################
-
-SET(INCLUDE_PERFORMANCE_TESTS OFF CACHE BOOL "Whether to include performance tests into test targets.")
-MARK_AS_ADVANCED(INCLUDE_PERFORMANCE_TESTS)
-
 #####################################
 #                                   #
 # Basic setup of the project        #
@@ -68,7 +68,7 @@ MARK_AS_ADVANCED(INCLUDE_PERFORMANCE_TESTS)
 #####################################
 
 # minimum cmake version
-CMAKE_MINIMUM_REQUIRED(VERSION 3.2.0)
+cmake_minimum_required(VERSION 3.11)
 
 # extend cmake module path to include readdy custom modules
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
@@ -81,15 +81,19 @@ MACRO_ENSURE_OUT_OF_SOURCE_BUILD("${PROJECT_NAME} requires an out source build."
 SET(CMAKE_VERBOSE_MAKEFILE OFF)
 SET(CMAKE_COLOR_MAKEFILE ON)
 
-# we use c++11
-SET(CMAKE_CXX_STANDARD 11)
-SET(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 # version
-SET(READDY_MAJOR_VERSION 0)
-SET(READDY_MINOR_VERSION 0)
-SET(READDY_PATCH_VERSION 1)
-SET(READDY_VERSION "${READDY_MAJOR_VERSION}.${READDY_MINOR_VERSION}.${READDY_PATCH_VERSION}")
+set(READDY_VERSION "v0.0" CACHE STRING "The version")
+mark_as_advanced(READDY_VERSION)
+set(READDY_BUILD_STRING "dev" CACHE STRING "Build string")
+mark_as_advanced(READDY_BUILD_STRING)
+
+message(STATUS "====================================================")
+message(STATUS "CMake configure for readdy version ${READDY_VERSION}-${READDY_BUILD_STRING}")
+message(STATUS "====================================================")
+
+# we use c++17
+SET(CMAKE_CXX_STANDARD 17)
+SET(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # always build readdy as shared lib
 SET(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libs" FORCE)
@@ -121,7 +125,13 @@ IF(NOT READDY_GENERATE_DOCUMENTATION_TARGET_ONLY)
         MESSAGE(STATUS "Using specified '${CMAKE_BUILD_TYPE}' build type.")
     ENDIF (NOT CMAKE_BUILD_TYPE)
 
-    SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DREADDY_DEBUG")
+    string(TOLOWER "${CMAKE_BUILD_TYPE}" BUILD_TYPE_LOWER)
+    if (BUILD_TYPE_LOWER STREQUAL "release")
+        message(STATUS "--- release build type ---")
+    else()
+        message(STATUS "--- debug build type, specifying debug flag ---")
+        SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DREADDY_DEBUG")
+    endif()
 
     # output directories
     IF(READDY_DEBUG_PYTHON_MODULES)
@@ -150,29 +160,24 @@ IF(NOT READDY_GENERATE_DOCUMENTATION_TARGET_ONLY)
         SET(CMAKE_INSTALL_PREFIX ${READDY_INSTALL_PREFIX} CACHE PATH "Where to install readdy" FORCE)
     ENDIF(${CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT})
 
-    # extra compile and link flags
-    IF(NOT MSVC)
-        check_cxx_compiler_flag("-std=c++14" HAS_CPP14_FLAG)
-        IF(HAS_CPP14_FLAG)
-            SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DREADDY_CPP14")
-            SET(CMAKE_CXX_STANDARD 14)
-        ELSE()
-            SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DREADDY_CPP11")
-        ENDIF()
-    ELSE()
-        SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DREADDY_CPP14")
-    ENDIF()
     SET(EXTRA_COMPILE_FLAGS "")
     SET(EXTRA_LINK_FLAGS ${EXTRA_COMPILE_FLAGS})
     IF(APPLE)
+        SET(CMAKE_MACOSX_RPATH 1)
         IF (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             SET(CMAKE_XCODE_ATTRIBUTE_CLANG_CXX_LIBRARY "libc++")
             # SET(EXTRA_COMPILE_FLAGS "${EXTRA_COMPILE_FLAGS} -stdlib=libc++")
             # SET(EXTRA_LINK_FLAGS "${EXTRA_LINK_FLAGS} -v -stdlib=libc++ -lc++abi")
+            if (CMAKE_BUILD_TYPE STREQUAL "Release")
+                SET(EXTRA_COMPILE_FLAGS "${EXTRA_COMPILE_FLAGS}")
+            endif()
         ENDIF (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     ENDIF(APPLE)
     IF (CMAKE_SYSTEM_NAME MATCHES "Linux")
         IF (NOT ANDROID)
+            if (CMAKE_BUILD_TYPE STREQUAL "Release")
+                SET(EXTRA_COMPILE_FLAGS "${EXTRA_COMPILE_FLAGS}") # -ffast-math
+            endif()
             SET(EXTRA_LINK_FLAGS "${EXTRA_LINK_FLAGS} -Wl,--no-as-needed -lrt")
         ENDIF (NOT ANDROID)
     ENDIF(CMAKE_SYSTEM_NAME MATCHES "Linux")
@@ -192,6 +197,7 @@ IF(NOT READDY_GENERATE_DOCUMENTATION_TARGET_ONLY)
 
     MESSAGE(STATUS "Initializing and updating submodules")
     EXECUTE_PROCESS(COMMAND git submodule update --init WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    add_subdirectory(libraries/h5rd)
 
     #####################################
     #                                   #
@@ -201,31 +207,21 @@ IF(NOT READDY_GENERATE_DOCUMENTATION_TARGET_ONLY)
 
     IF (READDY_CREATE_TEST_TARGET)
 
-       if (CMAKE_VERSION VERSION_LESS 3.2)
-           set(UPDATE_DISCONNECTED_IF_AVAILABLE "")
-       else()
-           set(UPDATE_DISCONNECTED_IF_AVAILABLE "UPDATE_DISCONNECTED 1")
-       endif()
+        if (EXISTS ${CMAKE_CURRENT_LIST_DIR}/libraries/Catch2/CMakeLists.txt)
+            add_subdirectory(libraries/Catch2)
+            include(${CMAKE_CURRENT_LIST_DIR}/libraries/Catch2/contrib/Catch.cmake)
+        elseif (NOT TARGET Catch2::Catch2)
+            find_package(Catch2 QUIET)
+            if (CATCH2_FOUND)
+                include(Catch)
+            else()
+                message(SEND_ERROR "Catch2 not found.")
+            endif()
+        endif ()
 
-       include(cmake/Modules/DownloadProject.cmake)
-       download_project(PROJ googletest
-               GIT_REPOSITORY https://github.com/google/googletest.git
-               GIT_TAG release-1.8.0
-               ${UPDATE_DISCONNECTED_IF_AVAILABLE}
-               )
-
-       # Prevent GoogleTest from overriding our compiler/linker options
-       # when building with Visual Studio
-       set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-
-       add_subdirectory(${googletest_SOURCE_DIR} ${googletest_BINARY_DIR})
-
-       ENABLE_TESTING()
-
-       ADD_SUBDIRECTORY(readdy_testing)
+        add_subdirectory(readdy_testing)
 
     ELSE()
-        MESSAGE(STATUS "The submodule googletest was not initialized or READDY_CREATE_TEST_TARGET was OFF, thus no testing.")
         # disable testing if there was no submodule
         SET(READDY_CREATE_TEST_TARGET OFF)
         # if tests are disabled, so are the corresponding memory checks
@@ -260,9 +256,10 @@ IF(NOT READDY_GENERATE_DOCUMENTATION_TARGET_ONLY)
         INCLUDE(cmake/sources/sources_readdy.cmake)
         # create library
         MESSAGE(STATUS "Libraries ReaDDy depends on: ${READDY_DEPENDENT_LIBRARIES}")
+        MESSAGE(STATUS "Include directories: ${READDY_INCLUDE_DIRS}")
         ADD_LIBRARY(${READDY_PROJECT_NAME} ${READDY_ALL_SOURCES} ${READDY_GLOBAL_INCLUDE_DIR})
         TARGET_INCLUDE_DIRECTORIES(${READDY_PROJECT_NAME} PUBLIC ${READDY_INCLUDE_DIRS})
-        TARGET_LINK_LIBRARIES(${READDY_PROJECT_NAME} ${READDY_DEPENDENT_LIBRARIES})
+        TARGET_LINK_LIBRARIES(${READDY_PROJECT_NAME} PUBLIC ${READDY_DEPENDENT_LIBRARIES})
         SET_TARGET_PROPERTIES(${READDY_PROJECT_NAME} PROPERTIES
                 LINK_FLAGS "${EXTRA_LINK_FLAGS}"
                 COMPILE_FLAGS "${EXTRA_COMPILE_FLAGS}")
@@ -292,13 +289,40 @@ IF(NOT READDY_GENERATE_DOCUMENTATION_TARGET_ONLY)
     #                                   #
     #####################################
     IF(READDY_BUILD_SHARED_COMBINED)
+        INSTALL (
+                DIRECTORY ${CMAKE_SOURCE_DIR}/include/
+                DESTINATION include
+                FILES_MATCHING PATTERN "*.h*")
+        INSTALL (
+                DIRECTORY ${CMAKE_SOURCE_DIR}/kernels/cpu/include/
+                DESTINATION include
+                FILES_MATCHING PATTERN "*.h*"
+        )
+        INSTALL (
+                DIRECTORY ${CMAKE_SOURCE_DIR}/libraries/h5rd/include/
+                DESTINATION include
+                FILES_MATCHING PATTERN "*.h*")
+        INSTALL (
+                DIRECTORY ${CMAKE_SOURCE_DIR}/libraries/json/include/
+                DESTINATION include
+                FILES_MATCHING PATTERN "*.h*"
+        )
+        INSTALL (
+                DIRECTORY ${CMAKE_SOURCE_DIR}/libraries/spdlog/include/
+                DESTINATION include
+                FILES_MATCHING PATTERN "*.h*"
+        )
+        INSTALL (
+                DIRECTORY ${CMAKE_SOURCE_DIR}/libraries/spdlog/include/
+                DESTINATION include
+                FILES_MATCHING PATTERN "*.cc*"
+        )
         INSTALL(TARGETS ${READDY_PROJECT_NAME}
                 RUNTIME DESTINATION bin
                 LIBRARY DESTINATION lib
                 ARCHIVE DESTINATION lib)
         INSTALL_TARGETS(/lib RUNTIME_DIRECTORY /lib ${READDY_PROJECT_NAME})
     ENDIF(READDY_BUILD_SHARED_COMBINED)
-    INSTALL(DIRECTORY include/ DESTINATION include)
 
     #####################################
     #                                   #
@@ -320,15 +344,6 @@ IF(NOT READDY_GENERATE_DOCUMENTATION_TARGET_ONLY)
         ADD_TEST(NAME readdy-tests COMMAND runUnitTests)
         ADD_SUBDIRECTORY(kernels/singlecpu/test)
     ENDIF ()
-
-    #####################################
-    #                                   #
-    # readdy examples                   #
-    #                                   #
-    #####################################
-    if (READDY_BUILD_EXAMPLES)
-        ADD_SUBDIRECTORY(readdy/examples)
-    endif()
 
     #####################################
     #                                   #

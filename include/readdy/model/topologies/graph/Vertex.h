@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          * 
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -27,7 +40,7 @@
  * @brief << brief description >>
  * @author clonker
  * @date 16.03.17
- * @copyright GNU Lesser General Public License v3.0
+ * @copyright BSD-3
  */
 
 #pragma once
@@ -58,8 +71,6 @@ public:
     using vertex_ptr = std::list<Vertex>::iterator;
     using vertex_cptr = std::list<Vertex>::const_iterator;
 
-    using label_type = std::string;
-
     /**
      * default constructor
      */
@@ -69,12 +80,12 @@ public:
      * constructs a vertex to a graph
      * @param particleIndex the particle index this vertex belongs to
      */
-    Vertex(std::size_t particleIndex, particle_type_type particleType, std::string label = "")
-            : particleIndex(particleIndex), _label(std::move(label)), particleType_(particleType) {}
+    Vertex(std::size_t particleIndex, ParticleTypeId particleType)
+            : particleIndex(particleIndex), particleType_(particleType) {}
 
-    Vertex(const Vertex &) = delete;
+    Vertex(const Vertex &) = default;
 
-    Vertex &operator=(const Vertex &) = delete;
+    Vertex &operator=(const Vertex &) = default;
 
     Vertex(Vertex &&) = default;
 
@@ -86,13 +97,6 @@ public:
     virtual ~Vertex() = default;
 
     /**
-     * vertex' name, can be left empty and is then ignored
-     */
-    const label_type &label() const;
-
-    label_type &label();
-
-    /**
      * particle index in the topology this vertex belongs to
      */
     std::size_t particleIndex {0};
@@ -102,8 +106,7 @@ public:
     }
 
     friend std::ostream &operator<<(std::ostream &os, const Vertex &vertex) {
-        os << "Vertex[label: " << vertex.label() << ", particleIndex: "
-           << vertex.particleIndex << ", neighbors=[";
+        os << "Vertex[particleIndex: " << vertex.particleIndex << ", neighbors=[";
         for (const auto neighbor : vertex.neighbors_) {
             os << neighbor->particleIndex << ",";
         }
@@ -119,7 +122,7 @@ public:
         if (std::find(neighbors_.begin(), neighbors_.end(), edge) == neighbors_.end()) {
             neighbors_.push_back(edge);
         } else {
-            log::warn("tried to add an already existing edge ({} - {})", particleIndex, edge->particleIndex);
+            log::debug("tried to add an already existing edge ({} - {})", particleIndex, edge->particleIndex);
         }
     }
 
@@ -128,7 +131,7 @@ public:
         if ((it = std::find(neighbors_.begin(), neighbors_.end(), edge)) != neighbors_.end()) {
             neighbors_.erase(it);
         } else {
-            log::warn("tried to remove a non existing edge {} - {}", particleIndex, edge->particleIndex);
+            log::debug("tried to remove a non existing edge {} - {}", particleIndex, edge->particleIndex);
         }
     }
 
@@ -136,12 +139,12 @@ public:
         return neighbors_;
     }
 
-    const particle_type_type &particleType() const {
+    const ParticleTypeId &particleType() const {
         return particleType_;
     }
 
-    void setParticleType(particle_type_type type) {
-        particleType_ = type;
+    ParticleTypeId &particleType() {
+        return particleType_;
     }
 
     /**
@@ -157,96 +160,8 @@ private:
      */
     std::vector<vertex_ptr> neighbors_{};
 
-    particle_type_type particleType_ {0};
-    label_type _label{""};
+    ParticleTypeId particleType_ {0};
 };
-
-class VertexRef;
-
-class VertexCRef;
-
-class VertexRef {
-public:
-    VertexRef();
-
-    virtual ~VertexRef() = default;
-
-    VertexRef(Vertex::vertex_ptr it);
-
-    VertexRef(Graph *graph, const Vertex::label_type &label);
-
-    VertexRef(VertexRef &&) = default;
-
-    VertexRef &operator=(VertexRef &&) = default;
-
-    VertexRef(const VertexRef &) = default;
-
-    VertexRef &operator=(const VertexRef &) = default;
-
-    bool operator==(const VertexRef &rhs) const;
-
-    bool operator!=(const VertexRef &rhs) const;
-
-    Vertex &operator*();
-
-    Vertex *operator->();
-
-    const Vertex *operator->() const;
-
-    const Vertex &operator*() const;
-
-    Vertex::vertex_ptr &data();
-
-    const Vertex::vertex_ptr &data() const;
-
-    friend std::ostream &operator<<(std::ostream &os, const VertexRef &vertex);
-
-private:
-    Vertex::vertex_ptr it;
-    Vertex::label_type label;
-    Graph *graph;
-};
-
-class VertexCRef {
-public:
-    VertexCRef() = default;
-
-    virtual ~VertexCRef() = default;
-
-    VertexCRef(Vertex::vertex_cptr it);
-
-    VertexCRef(Vertex::vertex_ptr it);
-
-    VertexCRef(const Graph *graph, const Vertex::label_type &label);
-
-    VertexCRef(const VertexRef &ref);
-
-    VertexCRef(VertexCRef &&) = default;
-
-    VertexCRef &operator=(VertexCRef &&) = default;
-
-    VertexCRef(const VertexCRef &) = default;
-
-    VertexCRef &operator=(const VertexCRef &) = default;
-
-    Vertex::vertex_cptr data() const;
-
-    bool operator==(const VertexCRef &rhs) const;
-
-    bool operator!=(const VertexCRef &rhs) const;
-
-    const Vertex *operator->() const;
-
-    const Vertex &operator*() const;
-
-    friend std::ostream &operator<<(std::ostream &os, const VertexCRef &c);
-
-private:
-    Vertex::vertex_cptr it;
-    Vertex::label_type label;
-    const Graph *graph;
-};
-
 
 NAMESPACE_END(graph)
 NAMESPACE_END(top)

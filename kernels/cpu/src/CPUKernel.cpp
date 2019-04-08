@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -26,134 +39,56 @@
  * @file CPUKernel.cpp
  * @brief << brief description >>
  * @author clonker
- * @date 23.06.16
+ * @date 12/11/17
  */
 
 #include <readdy/kernel/cpu/CPUKernel.h>
-#include <readdy/kernel/cpu/actions/CPUActionFactory.h>
-#include <readdy/kernel/cpu/observables/CPUObservableFactory.h>
-#include <readdy/kernel/cpu/model/topologies/CPUTopologyActionFactory.h>
+
 
 namespace readdy {
 namespace kernel {
 namespace cpu {
+
 const std::string CPUKernel::name = "CPU";
 
-struct CPUKernel::Impl {
-    std::unique_ptr<actions::CPUActionFactory> actionFactory;
-    std::unique_ptr<readdy::model::potentials::PotentialFactory> potentialFactory;
-    std::unique_ptr<readdy::model::reactions::ReactionFactory> reactionFactory;
-    std::unique_ptr<observables::CPUObservableFactory> observableFactory;
-    std::unique_ptr<readdy::model::compartments::CompartmentFactory> compartmentFactory;
-    std::unique_ptr<CPUStateModel> stateModel;
-    std::unique_ptr<readdy::model::KernelContext> context;
-    std::unique_ptr<readdy::util::thread::Config> config;
-    std::unique_ptr<readdy::model::top::TopologyActionFactory> topologyActionFactory;
-};
-
-readdy::model::Kernel* CPUKernel::create() {
+readdy::model::Kernel *CPUKernel::create() {
     return new CPUKernel();
 }
 
-CPUKernel::CPUKernel() : readdy::model::Kernel(name), pimpl(std::make_unique<Impl>()) {
-    pimpl->config = std::make_unique<readdy::util::thread::Config>();
-    pimpl->config->setMode(readdy::util::thread::ThreadMode::pool);
-
-    pimpl->reactionFactory = std::make_unique<readdy::model::reactions::ReactionFactory>();
-    pimpl->context = std::make_unique<readdy::model::KernelContext>();
-    pimpl->actionFactory = std::make_unique<actions::CPUActionFactory>(this);
-    pimpl->topologyActionFactory = std::make_unique<readdy::kernel::cpu::model::top::CPUTopologyActionFactory>(this);
-    pimpl->stateModel = std::make_unique<CPUStateModel>(pimpl->context.get(), pimpl->config.get(), pimpl->topologyActionFactory.get());
-    pimpl->potentialFactory = std::make_unique<readdy::model::potentials::PotentialFactory>();
-    pimpl->observableFactory = std::make_unique<observables::CPUObservableFactory>(this);
-    pimpl->compartmentFactory = std::make_unique<readdy::model::compartments::CompartmentFactory>();
-}
-
-CPUStateModel &CPUKernel::getKernelStateModelInternal() const {
-    return *pimpl->stateModel;
-}
-
-readdy::model::KernelContext &CPUKernel::getKernelContextInternal() const {
-    return *pimpl->context;
-}
-
-readdy::model::potentials::PotentialFactory &CPUKernel::getPotentialFactoryInternal() const {
-    return *pimpl->potentialFactory;
-}
-
-readdy::model::reactions::ReactionFactory &CPUKernel::getReactionFactoryInternal() const {
-    return *pimpl->reactionFactory;
-}
-
-readdy::model::observables::ObservableFactory &CPUKernel::getObservableFactoryInternal() const {
-    return *pimpl->observableFactory;
-}
-
-readdy::model::compartments::CompartmentFactory &CPUKernel::getCompartmentFactoryInternal() const {
-    return *pimpl->compartmentFactory;
-}
-
-unsigned long CPUKernel::getNThreads() const {
-    return pimpl->config->nThreads();
-}
-
-void CPUKernel::setNThreads(readdy::util::thread::Config::n_threads_type n) {
-    pimpl->config->setNThreads(n);
-}
-
-readdy::model::actions::ActionFactory &CPUKernel::getActionFactoryInternal() const {
-    return *pimpl->actionFactory;
-}
-
-readdy::model::top::TopologyActionFactory *CPUKernel::getTopologyActionFactoryInternal() const {
-    return pimpl->topologyActionFactory.get();
-}
-
-const CPUStateModel &CPUKernel::getCPUKernelStateModel() const {
-    return getKernelStateModelInternal();
-}
-
-CPUStateModel &CPUKernel::getCPUKernelStateModel() {
-    return getKernelStateModelInternal();
-}
-
-const readdy::util::thread::Config &CPUKernel::threadConfig() const {
-    return *pimpl->config;
-}
-
-readdy::util::thread::Config &CPUKernel::threadConfig() {
-    return *pimpl->config;
-}
+CPUKernel::CPUKernel() : readdy::model::Kernel(name), _pool(readdy_default_n_threads()),
+                         _data(_context, _pool), _actions(this),
+                         _observables(this), _topologyActionFactory(_context, _data),
+                         _stateModel(_data, _context, _pool, &_topologyActionFactory) {}
 
 void CPUKernel::initialize() {
     readdy::model::Kernel::initialize();
-    threadConfig().setMode(readdy::util::thread::ThreadMode::pool);
-    for(auto& top : getCPUKernelStateModel().topologies()) {
-        top->configure();
-        top->updateReactionRates();
+
+    const auto &fullConfiguration = context().kernelConfiguration();
+
+    const auto &configuration = fullConfiguration.cpu;
+    // thread config
+    setNThreads(static_cast<std::uint32_t>(configuration.threadConfig.getNThreads()));
+    {
+        // state model config
+        _stateModel.configure(configuration);
     }
+    for (auto &top : _stateModel.topologies()) {
+        top->configure();
+        top->updateReactionRates(context().topologyRegistry().structuralReactionsOf(top->type()));
+    }
+    _stateModel.reactionRecords().clear();
+    _stateModel.resetReactionCounts();
+    _stateModel.virial() = Matrix33{{{0, 0, 0, 0, 0, 0, 0, 0, 0}}};
 }
-
-void CPUKernel::finalize() {
-    readdy::model::Kernel::finalize();
-    threadConfig().setMode(readdy::util::thread::ThreadMode::inactive);
-}
-
-const readdy::util::thread::executor_base &CPUKernel::executor() const {
-    return *threadConfig().executor();
-}
-
-CPUKernel::~CPUKernel() = default;
 
 }
 }
 }
 
-
-const char* name()  {
+const char *name() {
     return readdy::kernel::cpu::CPUKernel::name.c_str();
 }
 
-readdy::model::Kernel* createKernel() {
+readdy::model::Kernel *createKernel() {
     return readdy::kernel::cpu::CPUKernel::create();
 }

@@ -1,285 +1,442 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
 /**
- * << detailed description >>
- *
- * @file SingleCPUNeighborList.h
- * @brief << brief description >>
+ * @file SCPUNeighborList.h
+ * @brief Cell linked list for Single CPU kernel
  * @author clonker
+ * @author chrisfroe
  * @date 09.06.16
  */
 
 #pragma once
+
 #include <unordered_set>
-#include <readdy/model/KernelContext.h>
+#include <readdy/model/Context.h>
 #include "SCPUParticleData.h"
 #include <readdy/common/numeric.h>
+#include <readdy/common/Index.h>
 
 namespace readdy {
 namespace kernel {
 namespace scpu {
 namespace model {
-struct READDY_API ParticleIndexPair {
-    size_t idx1, idx2;
 
-    ParticleIndexPair(size_t idx1, size_t idx2) {
-        if (idx1 < idx2) {
-            ParticleIndexPair::idx1 = idx1;
-            ParticleIndexPair::idx2 = idx2;
-        } else if (idx1 > idx2) {
-            ParticleIndexPair::idx1 = idx2;
-            ParticleIndexPair::idx2 = idx1;
-        } else {
-            throw std::runtime_error("pair must not have equal indices");
-        }
-    }
+class BoxIterator;
 
-    friend size_t hash_value(const ParticleIndexPair &pip) {
-        size_t seed = 0;
-        readdy::util::hash::combine(seed, pip.idx1);
-        readdy::util::hash::combine(seed, pip.idx2);
-        return seed;
-    }
-
-    friend bool operator==(const ParticleIndexPair &pip1, const ParticleIndexPair &pip2) {
-        return pip1.idx1 == pip2.idx1 && pip1.idx2 == pip2.idx2;
-    }
-
-    friend std::ostream &operator<<(std::ostream &os, const ParticleIndexPair &pip) {
-        os << "ParticleIndexPair(" << pip.idx1 << ", " << pip.idx2 << ")";
-        return os;
-    }
-};
-
-struct READDY_API ParticleIndexPairHasher {
-    size_t operator()(const ParticleIndexPair &pip) const {
-        return hash_value(pip);
-    }
-};
-
-template<typename container=std::unordered_set<ParticleIndexPair, ParticleIndexPairHasher>>
-struct READDY_API SCPUNeighborListContainer {
-    typedef typename container::iterator iter_type;
-    typedef typename container::const_iterator const_iter_type;
-
-    virtual iter_type begin() { return pairs->begin(); };
-
-    virtual const_iter_type begin() const { return cbegin(); };
-
-    virtual const_iter_type cbegin() const { return pairs->cbegin(); };
-
-    virtual iter_type end() { return pairs->end(); };
-
-    virtual const_iter_type end() const { return cend(); };
-
-    virtual const_iter_type cend() const { return pairs->cend(); };
-
-    virtual void create(const SCPUParticleData &data, scalar skin) = 0;
-
-protected:
-    std::unique_ptr<container> pairs = std::make_unique<container>();
-};
-
-struct READDY_API SCPUNaiveNeighborList : public SCPUNeighborListContainer<> {
-    void create(const SCPUParticleData &data, scalar skin) override;
-
-    // ctor and dtor
-    SCPUNaiveNeighborList();
-
-    ~SCPUNaiveNeighborList();
-
-    // move
-    SCPUNaiveNeighborList(SCPUNaiveNeighborList &&rhs) noexcept;
-
-    SCPUNaiveNeighborList &operator=(SCPUNaiveNeighborList &&rhs) noexcept;
-
-    // copy
-    SCPUNaiveNeighborList(const SCPUNaiveNeighborList &rhs) = delete;
-
-    SCPUNaiveNeighborList &operator=(const SCPUNaiveNeighborList &rhs) = delete;
-
-};
-
-struct READDY_API Box {
-    std::vector<Box *> neighbors{};
-    std::vector<unsigned long> particleIndices{};
-    long i, j, k;
-    long id = 0;
-
-    Box(long i, long j, long k, long id) : i(i), j(j), k(k), id(id) {
-    }
-
-    void addNeighbor(Box *box) {
-        if (box && box->id != id
-            && std::find(neighbors.begin(), neighbors.end(), box) == neighbors.end()) {
-            neighbors.push_back(box);
-        }
-    }
-
-    friend bool operator==(const Box &lhs, const Box &rhs) {
-        return lhs.id == rhs.id;
-    }
-
-    friend bool operator!=(const Box &lhs, const Box &rhs) {
-        return !(lhs == rhs);
-    }
-};
-
-template<typename container=std::unordered_set<ParticleIndexPair, ParticleIndexPairHasher>>
-class READDY_API SCPUNotThatNaiveNeighborList : public SCPUNeighborListContainer<container> {
-    using super = readdy::kernel::scpu::model::SCPUNeighborListContainer<container>;
-    using context = readdy::model::KernelContext;
+class CellLinkedList {
 public:
-    explicit SCPUNotThatNaiveNeighborList(const context *const context) : ctx(context) {}
+    using data_type = readdy::kernel::scpu::model::SCPUParticleData;
+    using cell_radius_type = std::uint8_t;
+    using HEAD = std::vector<std::size_t>;
+    using LIST = std::vector<std::size_t>;
+    using entry_cref = const data_type::entry_type &;
+    using pair_callback = std::function<void(entry_cref, entry_cref)>;
 
-    void create(const SCPUParticleData &data, scalar skin) override {
-        setupBoxes(skin);
-        fillBoxes(data);
-    }
+    using iterator_bounds = std::tuple<std::size_t, std::size_t>;
 
-    void clear() {
-        boxes.clear();
-    }
+    CellLinkedList(data_type &data, const readdy::model::Context &context)
+            : _data(data), _context(context), _head{}, _list{}, _radius{0} {};
 
-    virtual void setupNeighboringBoxes(unsigned long i, unsigned long j, unsigned long k) {
-        auto me = getBox(i, j, k);
-        me->addNeighbor(getBox(i + 0, j + 0, k + 1));
-        me->addNeighbor(getBox(i + 0, j + 1, k - 1));
-        me->addNeighbor(getBox(i + 0, j + 1, k + 0));
-        me->addNeighbor(getBox(i + 0, j + 1, k + 1));
-        me->addNeighbor(getBox(i + 1, j - 1, k - 1));
-        me->addNeighbor(getBox(i + 1, j - 1, k + 0));
-        me->addNeighbor(getBox(i + 1, j - 1, k + 1));
-        me->addNeighbor(getBox(i + 1, j + 0, k - 1));
-        me->addNeighbor(getBox(i + 1, j + 0, k + 0));
-        me->addNeighbor(getBox(i + 1, j + 0, k + 1));
-        me->addNeighbor(getBox(i + 1, j + 1, k - 1));
-        me->addNeighbor(getBox(i + 1, j + 1, k + 0));
-        me->addNeighbor(getBox(i + 1, j + 1, k + 1));
-    }
+    void setUp(scalar cutoff, cell_radius_type radius) {
+        if (!_isSetUp || _cutoff != cutoff || _radius != radius) {
+            if (cutoff <= 0) {
+                throw std::logic_error("The cutoff distance for setting up a neighbor list must be > 0");
+            }
+            if (cutoff < _context.get().calculateMaxCutoff()) {
+                log::warn(fmt::format(
+                        "The requested cutoff {} for neighbor-list set-up was smaller than the largest cutoff {}",
+                        cutoff, _context.get().calculateMaxCutoff()));
+            }
+            _radius = radius;
+            _cutoff = cutoff;
 
-    virtual void setupBoxes(scalar skin) {
-        if (boxes.empty()) {
-            const auto simBoxSize = ctx->getBoxSize();
-            auto maxCutoff = ctx->calculateMaxCutoff();
-            if (maxCutoff > 0) {
-                maxCutoff += skin;
-                SCPUNotThatNaiveNeighborList::maxCutoff = maxCutoff;
+            auto size = _context.get().boxSize();
+            auto desiredWidth = static_cast<scalar>((_cutoff) / static_cast<scalar>(radius));
+            std::array<std::size_t, 3> dims{};
+            for (int i = 0; i < 3; ++i) {
+                dims[i] = static_cast<unsigned int>(std::max(1., std::floor(size[i] / desiredWidth)));
+                _cellSize[i] = size[i] / static_cast<scalar>(dims[i]);
+            }
 
-                for (std::uint8_t i = 0; i < 3; ++i) {
-                    nBoxes[i] = static_cast<int>(floor(simBoxSize[i] / maxCutoff));
-                    if (nBoxes[i] == 0) nBoxes[i] = 1;
-                    boxSize[i] = simBoxSize[i] / nBoxes[i];
+            _cellIndex = util::Index3D(dims[0], dims[1], dims[2]);
+
+            {
+                // set up cell adjacency list
+                std::array<std::size_t, 3> nNeighbors{{_cellIndex[0], _cellIndex[1], _cellIndex[2]}};
+                for (int i = 0; i < 3; ++i) {
+                    nNeighbors[i] = std::min(nNeighbors[i], static_cast<std::size_t>(2 * radius + 1));
                 }
-                for (long i = 0; i < nBoxes[0]; ++i) {
-                    for (long j = 0; j < nBoxes[1]; ++j) {
-                        for (long k = 0; k < nBoxes[2]; ++k) {
-                            boxes.push_back({i, j, k, k + j * nBoxes[2] + i * nBoxes[2] * nBoxes[1]});
+                auto nAdjacentCells = nNeighbors[0] * nNeighbors[1] * nNeighbors[2];
+                _cellNeighbors = util::Index2D(_cellIndex.size(), 1 + nAdjacentCells);
+                _cellNeighborsContent.resize(_cellNeighbors.size());
+                {
+                    auto pbc = _context.get().periodicBoundaryConditions();
+                    auto fixBoxIx = [&](auto cix, auto boxIx, std::uint8_t axis) {
+                        auto nCells = static_cast<int>(_cellIndex[axis]);
+                        if (pbc[axis] && nCells > 2) {
+                            return (boxIx % nCells + nCells) % nCells;
                         }
-                    }
-                }
-                for (auto i = 0; i < nBoxes[0]; ++i) {
-                    for (auto j = 0; j < nBoxes[1]; ++j) {
-                        for (auto k = 0; k < nBoxes[2]; ++k) {
-                            setupNeighboringBoxes(static_cast<unsigned long>(i),
-                                                  static_cast<unsigned long>(j),
-                                                  static_cast<unsigned long>(k));
+                        return boxIx;
+                    };
+
+                    int r = _radius;
+                    // local adjacency
+                    std::vector<std::size_t> adj;
+                    adj.reserve(1 + nAdjacentCells);
+                    for (int i = 0; i < _cellIndex[0]; ++i) {
+                        for (int j = 0; j < _cellIndex[1]; ++j) {
+                            for (int k = 0; k < _cellIndex[2]; ++k) {
+                                auto cellIdx = _cellIndex(static_cast<std::size_t>(i), static_cast<std::size_t>(j),
+                                                          static_cast<std::size_t>(k));
+                                std::array<std::size_t, 3> ijk {{static_cast<std::size_t>(i), static_cast<std::size_t>(j),static_cast<std::size_t>(k)}};
+
+                                adj.resize(0);
+                                {
+                                    std::vector<std::array<int, 3>> boxCoords{
+                                            {{i + 0, j + 0, k + 1}},
+
+                                            {{i + 0, j + 1, k - 1}},
+                                            {{i + 0, j + 1, k - 0}},
+                                            {{i + 0, j + 1, k + 1}},
+
+                                            {{i + 1, j - 1, k - 1}},
+                                            {{i + 1, j - 1, k + 0}},
+                                            {{i + 1, j - 1, k + 1}},
+
+                                            {{i + 1, j + 0, k - 1}},
+                                            {{i + 1, j + 0, k + 0}},
+                                            {{i + 1, j + 0, k + 1}},
+
+                                            {{i + 1, j + 1, k - 1}},
+                                            {{i + 1, j + 1, k + 0}},
+                                            {{i + 1, j + 1, k + 1}},
+                                    };
+
+                                    std::transform(boxCoords.begin(), boxCoords.end(), boxCoords.begin(),
+                                                   [&](auto arr) {
+                                                       for (std::uint8_t d = 0; d < 3; ++d) {
+                                                           arr.at(d) = fixBoxIx(ijk[d], arr.at(d), d);
+                                                       }
+                                                       return arr;
+                                                   }
+                                    );
+
+                                    for (auto boxCoord : boxCoords) {
+                                        if (boxCoord[0] >= 0 && boxCoord[1] >= 0 && boxCoord[2] >= 0
+                                            && boxCoord[0] < _cellIndex[0] && boxCoord[1] < _cellIndex[1] &&
+                                            boxCoord[2] < _cellIndex[2]) {
+                                            adj.push_back(_cellIndex(boxCoord[0], boxCoord[1], boxCoord[2]));
+                                        }
+                                    }
+                                }
+
+                                std::sort(adj.begin(), adj.end());
+                                adj.erase(std::unique(std::begin(adj), std::end(adj)), std::end(adj));
+                                adj.erase(std::remove(std::begin(adj), std::end(adj), _cellIndex(i, j, k)),
+                                          std::end(adj));
+
+                                //log::critical("cell {} with n neighbors: {}" ,cellIdx, adj.size());
+                                auto begin = _cellNeighbors(cellIdx, 0_z);
+                                _cellNeighborsContent[begin] = adj.size();
+                                std::copy(adj.begin(), adj.end(), &_cellNeighborsContent.at(begin + 1));
+                            }
                         }
                     }
                 }
             }
+            _isSetUp = true;
+            setUpBins();
         }
+    };
+
+    void update() {
+        setUpBins();
     }
 
-    virtual void fillBoxes(const SCPUParticleData &data) {
-        const auto simBoxSize = ctx->getBoxSize();
-        if (maxCutoff > 0) {
+    virtual void clear() {
+        _head.resize(0);
+        _list.resize(0);
+        _isSetUp = false;
+    };
 
-            std::for_each(boxes.begin(), boxes.end(), [](Box& box) {box.particleIndices.clear();});
-            super::pairs->clear();
+    const util::Index3D &cellIndex() const {
+        return _cellIndex;
+    };
 
-            unsigned long idx = 0;
-            const auto shift = readdy::model::Vec3(c_::half * simBoxSize[0], c_::half * simBoxSize[1],
-                                                   c_::half * simBoxSize[2]);
-            for(const auto& entry : data) {
-                if(!entry.is_deactivated()) {
-                    const auto pos_shifted = entry.position() + shift;
-                    const long i = (const long) floor(pos_shifted[0] / boxSize[0]);
-                    const long j = (const long) floor(pos_shifted[1] / boxSize[1]);
-                    const long k = (const long) floor(pos_shifted[2] / boxSize[2]);
-                    auto box = getBox(i, j, k);
-                    if (box) {
-                        box->particleIndices.push_back(idx);
-                    }
-                }
-                ++idx;
-            }
+    const util::Index2D &neighborIndex() const {
+        return _cellNeighbors;
+    };
 
-            for (auto &&box : boxes) {
-                for (long i = 0; i < box.particleIndices.size(); ++i) {
-                    const auto pI = box.particleIndices[i];
-                    for (long j = i + 1; j < box.particleIndices.size(); ++j) {
-                        super::pairs->push_back({pI, box.particleIndices[j]});
-                    }
+    const std::vector<std::size_t> &neighbors() const {
+        return _cellNeighborsContent;
+    };
 
-                    for (auto &&neighboringBox : box.neighbors) {
-                        for (const auto &pJ : neighboringBox->particleIndices) {
-                            super::pairs->push_back({pI, pJ});
-                        }
-                    }
-                }
-            }
+    std::size_t *neighborsBegin(std::size_t cellIndex) {
+        auto beginIdx = _cellNeighbors(cellIndex, 1_z);
+        return &_cellNeighborsContent.at(beginIdx);
+    };
+
+    const std::size_t *neighborsBegin(std::size_t cellIndex) const {
+        auto beginIdx = _cellNeighbors(cellIndex, 1_z);
+        return &_cellNeighborsContent.at(beginIdx);
+    };
+
+    std::size_t *neighborsEnd(std::size_t cellIndex) {
+        return neighborsBegin(cellIndex) + nNeighbors(cellIndex);
+    };
+
+    const std::size_t *neighborsEnd(std::size_t cellIndex) const {
+        return neighborsBegin(cellIndex) + nNeighbors(cellIndex);
+    };
+
+    std::size_t nNeighbors(std::size_t cellIndex) const {
+        return _cellNeighborsContent.at(_cellNeighbors(cellIndex, 0_z));
+    };
+
+    data_type &data() {
+        return _data.get();
+    };
+
+    const data_type &data() const {
+        return _data.get();
+    };
+
+    scalar cutoff() const {
+        return _cutoff;
+    };
+
+    const HEAD &head() const {
+        return _head;
+    };
+
+    const LIST &list() const {
+        return _list;
+    };
+
+    template<typename Function>
+    void forEachNeighbor(BoxIterator particle, const Function &function) const;
+
+    template<typename Function>
+    void forEachNeighbor(BoxIterator particle, std::size_t cell, const Function &function) const;
+
+    bool cellEmpty(std::size_t index) const {
+        return _head.at(index) == 0;
+    };
+
+    std::size_t cellOfParticle(std::size_t index) const {
+        const auto &entry = data().entry_at(index);
+        if (entry.deactivated) {
+            throw std::invalid_argument("requested deactivated entry");
         }
-    }
+        const auto &boxSize = _context.get().boxSize();
+        if(!(-.5*boxSize[0] <= entry.pos.x && .5*boxSize[0] > entry.pos.x
+             && -.5*boxSize[1] <= entry.pos.y && .5*boxSize[1] > entry.pos.y
+             && -.5*boxSize[2] <= entry.pos.z && .5*boxSize[2] > entry.pos.z)) {
+            throw std::logic_error("CellLinkedList: requested neighbors of particle that was out of bounds.");
+        }
+        const auto i = static_cast<std::size_t>(std::floor((entry.pos.x + .5 * boxSize[0]) / _cellSize.x));
+        const auto j = static_cast<std::size_t>(std::floor((entry.pos.y + .5 * boxSize[1]) / _cellSize.y));
+        const auto k = static_cast<std::size_t>(std::floor((entry.pos.z + .5 * boxSize[2]) / _cellSize.z));
+        return _cellIndex(i, j, k);
+    };
 
-    Box *getBox(long i, long j, long k) {
-        const auto &periodic = ctx->getPeriodicBoundary();
-        if (periodic[0]) i = readdy::util::numeric::positive_modulo(i, nBoxes[0]);
-        else if (i < 0 || i >= nBoxes[0]) return nullptr;
-        if (periodic[1]) j = readdy::util::numeric::positive_modulo(j, nBoxes[1]);
-        else if (j < 0 || j >= nBoxes[1]) return nullptr;
-        if (periodic[2]) k = readdy::util::numeric::positive_modulo(k, nBoxes[2]);
-        else if (k < 0 || k >= nBoxes[2]) return nullptr;
-        return &boxes[k + j * nBoxes[2] + i * nBoxes[2] * nBoxes[1]];
-    }
+    std::size_t nCells() const {
+        return _cellIndex.size();
+    };
 
-    const std::vector<Box> &getBoxes() const {
-        return boxes;
+    BoxIterator particlesBegin(std::size_t cellIndex);
+
+    BoxIterator particlesBegin(std::size_t cellIndex) const;
+
+    BoxIterator particlesEnd(std::size_t cellIndex);
+
+    BoxIterator particlesEnd(std::size_t cellIndex) const;
+
+    const Vec3 &cellSize() const {
+        return _cellSize;
     }
 
 protected:
-    std::vector<Box> boxes{};
-    std::array<int, 3> nBoxes{{0, 0, 0}};
-    readdy::model::Vec3 boxSize{0, 0, 0};
-    scalar maxCutoff {0};
+    virtual void setUpBins() {
+        if (_isSetUp) {
+            auto nParticles = _data.get().size();
+            _head.clear();
+            _head.resize(_cellIndex.size());
+            _list.resize(0);
+            _list.resize(nParticles + 1);
+            fillBins();
+        } else {
+            throw std::logic_error("Attempting to fill neighborlist bins, but cell structure is not set up yet");
+        }
+    };
 
-    const context *const ctx;
+    void fillBins() {
+        const auto &boxSize = _context.get().boxSize();
+
+        auto particleInBox = [boxSize](const Vec3 &pos) {
+            return -.5*boxSize[0] <= pos.x && .5*boxSize[0] > pos.x
+                   && -.5*boxSize[1] <= pos.y && .5*boxSize[1] > pos.y
+                   && -.5*boxSize[2] <= pos.z && .5*boxSize[2] > pos.z;
+        };
+
+        std::size_t pidx = 1;
+        for (const auto &entry : _data.get()) {
+            if (!entry.deactivated && particleInBox(entry.pos)) {
+                const auto i = static_cast<std::size_t>(std::floor((entry.pos.x + .5 * boxSize[0]) / _cellSize.x));
+                const auto j = static_cast<std::size_t>(std::floor((entry.pos.y + .5 * boxSize[1]) / _cellSize.y));
+                const auto k = static_cast<std::size_t>(std::floor((entry.pos.z + .5 * boxSize[2]) / _cellSize.z));
+                const auto cellIndex = _cellIndex(i, j, k);
+                _list[pidx] = _head.at(cellIndex);
+                _head[cellIndex] = pidx;
+            }
+            ++pidx;
+        }
+    }
+
+    HEAD _head;
+    // particles, 1-indexed
+    LIST _list;
+
+
+    bool _isSetUp{false};
+
+    scalar _cutoff{0};
+    std::uint8_t _radius;
+
+    Vec3 _cellSize{0, 0, 0};
+
+    util::Index3D _cellIndex;
+    // index of size (n_cells x (1 + nAdjacentCells)), where the first element tells how many adj cells are stored
+    util::Index2D _cellNeighbors;
+    // backing vector of _cellNeighbors index of size (n_cells x (1 + nAdjacentCells))
+    std::vector<std::size_t> _cellNeighborsContent;
+
+    std::reference_wrapper<data_type> _data;
+    std::reference_wrapper<const readdy::model::Context> _context;
 };
 
-struct READDY_API SCPUNeighborList : public SCPUNotThatNaiveNeighborList<std::vector<ParticleIndexPair>> {
-    explicit SCPUNeighborList(const readdy::model::KernelContext *const ctx)
-            : SCPUNotThatNaiveNeighborList(ctx) {}
+class BoxIterator {
+
+    using alloc = std::allocator<std::size_t>;
+
+public:
+
+    using difference_type = typename alloc::difference_type;
+    using value_type = typename alloc::value_type;
+    using reference = typename alloc::const_reference;
+    using pointer = typename alloc::const_pointer;
+    using iterator_category = std::forward_iterator_tag;
+    using size_type = CellLinkedList::LIST::size_type;
+
+    BoxIterator(const CellLinkedList &ccll, std::size_t state) : _ccll(ccll), _state(state), _val(state - 1) {};
+
+    BoxIterator(const BoxIterator &) = default;
+
+    BoxIterator &operator=(const BoxIterator &) = delete;
+
+    BoxIterator(BoxIterator &&) = default;
+
+    BoxIterator &operator=(BoxIterator &&) = delete;
+
+    ~BoxIterator() = default;
+
+    const BoxIterator operator++(int) {
+        BoxIterator tmp(*this);
+        operator++();
+        return tmp;
+    };
+
+    pointer operator->() const {
+        return &_val;
+    }
+
+    BoxIterator &operator++() {
+        _state = _ccll.list().at(_state);
+        _val = _state - 1;
+        return *this;
+    };
+
+    value_type operator*() const {
+        return _val;
+    };
+
+    bool operator==(const BoxIterator &rhs) const {
+        return _state == rhs._state;
+    };
+
+    bool operator!=(const BoxIterator &rhs) const {
+        return _state != rhs._state;
+    };
+
+private:
+    const CellLinkedList &_ccll;
+    std::size_t _state, _val;
 };
+
+inline BoxIterator CellLinkedList::particlesBegin(std::size_t cellIndex) {
+    return {*this, _head.at(cellIndex)};
+}
+
+inline BoxIterator CellLinkedList::particlesBegin(std::size_t cellIndex) const {
+    return {*this, _head.at(cellIndex)};
+}
+
+inline BoxIterator CellLinkedList::particlesEnd(std::size_t /*cellIndex*/) const {
+    return {*this, 0};
+}
+
+inline BoxIterator CellLinkedList::particlesEnd(std::size_t /*cellIndex*/) {
+    return {*this, 0};
+}
+
+template<typename Function>
+inline void CellLinkedList::forEachNeighbor(BoxIterator particle, const Function &function) const {
+    forEachNeighbor(particle, cellOfParticle(*particle), function);
+}
+
+template<typename Function>
+inline void CellLinkedList::forEachNeighbor(BoxIterator particle, std::size_t cell,
+                                            const Function &function) const {
+    std::for_each(std::next(particle, 1), particlesEnd(cell), [&function, particle](auto x) {
+        function(x);
+    });
+    for (auto itNeighCell = neighborsBegin(cell); itNeighCell != neighborsEnd(cell); ++itNeighCell) {
+        std::for_each(particlesBegin(*itNeighCell), particlesEnd(*itNeighCell), function);
+    }
+}
 
 }
 }

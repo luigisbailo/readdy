@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          * 
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -27,11 +40,11 @@
  * @brief << brief description >>
  * @author clonker
  * @date 27.01.17
- * @copyright GNU Lesser General Public License v3.0
+ * @copyright BSD-3
  */
 
 #include <readdy/common/numeric.h>
-#include <readdy/model/Vec3Tensor.h>
+#include <readdy/common/Vec3Tensor.h>
 #include <readdy/model/topologies/TopologyActionFactory.h>
 
 #define SMALL .0001
@@ -41,19 +54,9 @@ namespace model {
 namespace top {
 namespace pot {
 
-TorsionPotential::TorsionPotential() : TopologyPotential() {}
-
-CosineDihedralPotential::CosineDihedralPotential(const dihedral_configurations &dihedrals)
-        : TorsionPotential(), dihedrals(dihedrals) {
-}
-
-const CosineDihedralPotential::dihedral_configurations &CosineDihedralPotential::getDihedrals() const {
-    return dihedrals;
-}
-
 scalar  CosineDihedralPotential::calculateEnergy(const Vec3 &x_ji, const Vec3 &x_kj, const Vec3 &x_kl,
                                                 const dihedral_configuration &dihedral) const {
-    const auto x_jk = -1 * x_kj;
+    const auto x_jk = -1. * x_kj;
     auto x_jk_norm = x_jk.norm();
     x_jk_norm = static_cast<scalar>(x_jk_norm < SMALL ? SMALL : x_jk_norm);
     const auto m = x_ji.cross(x_kj);
@@ -72,7 +75,7 @@ void
 CosineDihedralPotential::calculateForce(Vec3 &f_i, Vec3 &f_j, Vec3 &f_k, Vec3 &f_l, const Vec3 &x_ji, const Vec3 &x_kj,
                                         const Vec3 &x_kl,
                                         const dihedral_configuration &dih) const {
-    const auto x_jk = -1 * x_kj;
+    const auto x_jk = -1. * x_kj;
     auto x_jk_norm_squared = x_jk.normSquared();
     x_jk_norm_squared = static_cast<scalar>(x_jk_norm_squared < SMALL ? SMALL : x_jk_norm_squared);
     const auto x_jk_norm = std::sqrt(x_jk_norm_squared);
@@ -99,14 +102,14 @@ CosineDihedralPotential::calculateForce(Vec3 &f_i, Vec3 &f_j, Vec3 &f_k, Vec3 &f
     const auto dm_norm_dxi = dm_norm_squared_dxi / (2 * m_norm);
     const auto dm_norm_squared_dxk = -2 * x_ji.normSquared() * x_kj + 2 * (x_ji * x_kj) * x_ji;
     const auto dm_norm_dxk = dm_norm_squared_dxk / (2 * m_norm);
-    const auto dm_norm_squared_dxj = -1 * (dm_norm_squared_dxi + dm_norm_squared_dxk);
+    const auto dm_norm_squared_dxj = -1. * (dm_norm_squared_dxi + dm_norm_squared_dxk);
     const auto dm_norm_dxj = dm_norm_squared_dxj / (2 * m_norm);
     // dm_squared_dxl = 0;
     const auto dn_norm_squared_dxl = 2 * x_jk_norm_squared * x_kl - 2 * (x_kl * x_jk) * x_jk;
     const auto dn_norm_dxl = dn_norm_squared_dxl / (2 * n_norm);
     const auto dn_norm_squared_dxj = -2 * x_kl.normSquared() * x_jk + 2 * (x_kl * x_jk) * x_kl;
     const auto dn_norm_dxj = dn_norm_squared_dxj / (2 * n_norm);
-    const auto dn_norm_squared_dxk = -1 * (dn_norm_squared_dxl + dn_norm_squared_dxj);
+    const auto dn_norm_squared_dxk = -1. * (dn_norm_squared_dxl + dn_norm_squared_dxj);
     const auto dn_norm_dxk = dn_norm_squared_dxk / (2 * n_norm);
 
     const Vec3Tensor<3> dm_dxi{{{{0, -x_kj[2], x_kj[1]}, {x_kj[2], 0, -x_kj[0]}, {-x_kj[1], x_kj[0], 0}}}};
@@ -137,7 +140,7 @@ CosineDihedralPotential::calculateForce(Vec3 &f_i, Vec3 &f_j, Vec3 &f_k, Vec3 &f
     const auto dsin_phi_prefactor = (1. / (n_m_norm * x_jk_norm));
     const auto dsin_phi_dxi = dsin_phi_prefactor * (x_jk * dmxn_dxi - (sin_phi * n_norm * x_jk_norm) * dm_norm_dxi);
     const auto dsin_phi_dxj =
-            dsin_phi_prefactor * (x_jk * dmxn_dxj - 1 * m_x_n - (sin_phi * n_norm * x_jk_norm) * dm_norm_dxj -
+            dsin_phi_prefactor * (x_jk * dmxn_dxj - 1. * m_x_n - (sin_phi * n_norm * x_jk_norm) * dm_norm_dxj -
                                   (sin_phi * m_norm * x_jk_norm) * dn_norm_dxj +
                                   (sin_phi * n_m_norm / x_jk_norm) * x_jk);
     const auto dsin_phi_dxk = dsin_phi_prefactor *
@@ -163,17 +166,6 @@ std::unique_ptr<EvaluatePotentialAction>
 CosineDihedralPotential::createForceAndEnergyAction(const TopologyActionFactory *const factory) {
     return factory->createCalculateCosineDihedralPotential(this);
 }
-
-DihedralConfiguration::DihedralConfiguration(size_t idx1, size_t idx2, size_t idx3, size_t idx4, scalar  forceConstant,
-                                             scalar  multiplicity, scalar  equilibriumAngle)
-        : idx1(idx1), idx2(idx2), idx3(idx3), idx4(idx4), forceConstant(forceConstant),
-          phi_0(equilibriumAngle), multiplicity(multiplicity) {
-    if (equilibriumAngle > readdy::util::numeric::pi() || equilibriumAngle < -readdy::util::numeric::pi()) {
-        throw std::invalid_argument("the equilibrium angle should be within [-pi, pi], but was "
-                                    + std::to_string(equilibriumAngle));
-    }
-}
-
 
 }
 }

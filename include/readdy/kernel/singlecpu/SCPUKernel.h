@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -25,9 +38,13 @@
 //
 
 #pragma once
+
 #include <readdy/model/RandomProvider.h>
 #include <readdy/model/Kernel.h>
 #include <readdy/kernel/singlecpu/SCPUStateModel.h>
+#include <readdy/kernel/singlecpu/observables/SCPUObservableFactory.h>
+#include <readdy/kernel/singlecpu/model/topologies/SCPUTopologyActionFactory.h>
+#include <readdy/kernel/singlecpu/actions/SCPUActionFactory.h>
 
 namespace readdy {
 namespace kernel {
@@ -42,42 +59,56 @@ public:
 
     ~SCPUKernel() override;
 
-    // move
-    SCPUKernel(SCPUKernel &&rhs) noexcept;
-
-    SCPUKernel &operator=(SCPUKernel &&rhs) noexcept;
-
     // factory method
     static std::unique_ptr<SCPUKernel> create();
 
-    std::vector<std::string> getAvailablePotentials() const override;
+    const SCPUStateModel &getSCPUKernelStateModel() const {
+        return _model;
+    };
 
-    const SCPUStateModel &getSCPUKernelStateModel() const;
-    SCPUStateModel &getSCPUKernelStateModel();
+    SCPUStateModel &getSCPUKernelStateModel() {
+        return _model;
+    };
 
     void initialize() override;
 
-protected:
-    SCPUStateModel &getKernelStateModelInternal() const override;
+    const readdy::model::observables::ObservableFactory &observe() const override {
+        return _observables;
+    };
 
-    readdy::model::KernelContext &getKernelContextInternal() const override;
+    readdy::model::observables::ObservableFactory &observe() override {
+        return _observables;
+    };
 
-    readdy::model::actions::ActionFactory &getActionFactoryInternal() const override;
+    const readdy::model::actions::ActionFactory &actions() const override {
+        return _actionFactory;
+    };
 
-    readdy::model::potentials::PotentialFactory &getPotentialFactoryInternal() const override;
+    readdy::model::actions::ActionFactory &actions() override {
+        return _actionFactory;
+    };
 
-    readdy::model::reactions::ReactionFactory &getReactionFactoryInternal() const override;
+    const readdy::model::top::TopologyActionFactory *const getTopologyActionFactory() const override {
+        return &_topologyActionFactory;
+    };
 
-    readdy::model::compartments::CompartmentFactory &getCompartmentFactoryInternal() const override;
+    readdy::model::top::TopologyActionFactory *const getTopologyActionFactory() override {
+        return &_topologyActionFactory;
+    };
 
-    readdy::model::observables::ObservableFactory &getObservableFactoryInternal() const override;
+    const readdy::model::StateModel &stateModel() const override {
+        return _model;
+    };
 
-    readdy::model::top::TopologyActionFactory *getTopologyActionFactoryInternal() const override;
+    readdy::model::StateModel &stateModel() override {
+        return _model;
+    };
 
 private:
-
-    struct Impl;
-    std::unique_ptr<readdy::kernel::scpu::SCPUKernel::Impl> pimpl;
+    model::top::SCPUTopologyActionFactory _topologyActionFactory;
+    SCPUStateModel _model;
+    actions::SCPUActionFactory _actionFactory;
+    observables::SCPUObservableFactory _observables;
 };
 
 }

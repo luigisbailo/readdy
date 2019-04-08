@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -35,7 +48,6 @@
 
 #include <readdy/kernel/cpu/observables/CPUObservables.h>
 #include <readdy/kernel/cpu/CPUKernel.h>
-#include <readdy/kernel/cpu/util/config.h>
 
 namespace readdy {
 namespace kernel {
@@ -54,9 +66,9 @@ void CPUPositions::evaluate() {
         result = stateModel.getParticlePositions();
     } else {
         for (const auto &e : *stateModel.getParticleData()) {
-            if (!e.is_deactivated() &&
+            if (!e.deactivated &&
                 std::find(typesToCount.begin(), typesToCount.end(), e.type) != typesToCount.end()) {
-                result.push_back(e.position());
+                result.push_back(e.pos);
             }
         }
     }
@@ -71,7 +83,7 @@ CPUHistogramAlongAxis::CPUHistogramAlongAxis(CPUKernel *const kernel, unsigned i
 }
 
 void CPUHistogramAlongAxis::evaluate() {
-    using Iter = readdy::kernel::cpu::model::CPUParticleData::entries_t::const_iterator;
+    using Iter = readdy::kernel::cpu::CPUStateModel::data_type::const_iterator;
 
     std::fill(result.begin(), result.end(), 0);
 
@@ -88,8 +100,8 @@ void CPUHistogramAlongAxis::evaluate() {
         resultUpdate.resize(resultSize);
 
         for (auto it = from; it != to; ++it) {
-            if (!it->is_deactivated() && typesToCount.find(it->type) != typesToCount.end()) {
-                auto upperBound = std::upper_bound(binBorders.begin(), binBorders.end(), it->position()[axis]);
+            if (!it->deactivated && typesToCount.find(it->type) != typesToCount.end()) {
+                auto upperBound = std::upper_bound(binBorders.begin(), binBorders.end(), it->pos[axis]);
                 if (upperBound != binBorders.end()) {
                     auto binBordersIdx = upperBound - binBorders.begin();
                     if (binBordersIdx >= 1 && binBordersIdx < resultSize) {
@@ -105,33 +117,31 @@ void CPUHistogramAlongAxis::evaluate() {
     {
         const std::size_t grainSize = data->size() / kernel->getNThreads();
 
-        std::vector<std::function<void(std::size_t)>> executables;
-        executables.reserve(kernel->getNThreads());
         std::vector<std::promise<result_type>> promises;
         promises.resize(kernel->getNThreads());
 
-        const auto& executor = kernel->executor();
+        auto &pool = kernel->pool();
 
         auto workIter = data->cbegin();
         for (unsigned int i = 0; i < kernel->getNThreads() - 1; ++i) {
             updates.push_back(promises.at(i).get_future());
-            executables.push_back(executor.pack(worker, workIter, workIter + grainSize, std::ref(promises.at(i))));
+            pool.push(worker, workIter, workIter + grainSize, std::ref(promises.at(i)));
             workIter += grainSize;
         }
         auto& promise = promises.back();
         updates.push_back(promise.get_future());
-        executables.push_back(executor.pack(worker, workIter, data->cend(), std::ref(promise)));
+        pool.push(worker, workIter, data->cend(), std::ref(promise));
 
-        executor.execute_and_wait(std::move(executables));
-    }
 
-    for (auto &update : updates) {
-        auto vec = std::move(update.get());
-        auto it1 = vec.begin();
-        auto it2 = result.begin();
-        for (; it1 != vec.end(); ++it1, ++it2) {
-            *it2 += *it1;
+        for (auto &update : updates) {
+            auto vec = std::move(update.get());
+            auto it1 = vec.begin();
+            auto it2 = result.begin();
+            for (; it1 != vec.end(); ++it1, ++it2) {
+                *it2 += *it1;
+            }
         }
+
     }
 }
 
@@ -143,12 +153,13 @@ CPUNParticles::CPUNParticles(CPUKernel *const kernel, unsigned int stride, std::
 void CPUNParticles::evaluate() {
     std::vector<unsigned long> resultVec = {};
     if (typesToCount.empty()) {
-        resultVec.push_back(kernel->getCPUKernelStateModel().getParticleData()->size());
+        const auto data = kernel->getCPUKernelStateModel().getParticleData();
+        resultVec.push_back(data->size() - data->getNDeactivated());
     } else {
         resultVec.resize(typesToCount.size());
         const auto &pd = kernel->getCPUKernelStateModel().getParticleData();
         for (const auto &e : *pd) {
-            if (!e.is_deactivated()) {
+            if (!e.deactivated) {
                 auto typeIt = std::find(typesToCount.begin(), typesToCount.end(), e.type);
                 if (typeIt != typesToCount.end()) {
                     ++resultVec[typeIt - typesToCount.begin()];
@@ -170,7 +181,7 @@ void CPUForces::evaluate() {
         result.reserve(pd->size());
     }
     for (const auto &e : *pd) {
-        if (!e.is_deactivated()) {
+        if (!e.deactivated) {
             if (typesToCount.empty()) {
                 result.push_back(e.force);
             } else {
@@ -201,10 +212,10 @@ void CPUParticles::evaluate() {
     resultIds.reserve(particleData->size());
     resultPositions.reserve(particleData->size());
     for (const auto &entry : *particleData) {
-        if (!entry.is_deactivated()) {
+        if (!entry.deactivated) {
             resultTypes.push_back(entry.type);
             resultIds.push_back(entry.id);
-            resultPositions.push_back(entry.position());
+            resultPositions.push_back(entry.pos);
         }
     }
 }
@@ -215,18 +226,22 @@ CPUReactions::CPUReactions(CPUKernel *const kernel, unsigned int stride)
 void CPUReactions::evaluate() {
     const auto& model = kernel->getCPUKernelStateModel();
     const auto& records = model.reactionRecords();
-    result.clear();
-    result.reserve(records.size());
-    result.insert(result.end(), records.begin(), records.end());
+    result = records;
 }
 
 CPUReactionCounts::CPUReactionCounts(CPUKernel *const kernel, unsigned int stride)
         : ReactionCounts(kernel, stride), kernel(kernel) {}
 
 void CPUReactionCounts::evaluate() {
-    readdy::model::observables::ReactionCounts::initializeCounts(result, kernel->getKernelContext());
-    assignCountsToResult(kernel->getCPUKernelStateModel().reactionCounts(), result);
+    result = kernel->getCPUKernelStateModel().reactionCounts();
 }
+
+CPUVirial::CPUVirial(CPUKernel *kernel, stride_type stride) : Virial(kernel, stride), kernel(kernel) {}
+
+void CPUVirial::evaluate() {
+    result = kernel->getCPUKernelStateModel().virial();
+}
+
 
 }
 }

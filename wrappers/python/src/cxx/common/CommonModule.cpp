@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -27,12 +40,16 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/operators.h>
 #include <pybind11/stl_bind.h>
+#include <pybind11/stl.h>
 
-#include <readdy/model/Vec3.h>
-#include <readdy/io/io.h>
+#include <readdy/common/ReaDDyVec3.h>
+#include <readdy/io/BloscFilter.h>
+#include <pybind11/numpy.h>
 #include "SpdlogPythonSink.h"
+#include "ReadableParticle.h"
 
 namespace py = pybind11;
+using rvp = py::return_value_policy;
 
 /**
  * Notice: Exporting classes here that are to be shared between prototyping and api module require the base
@@ -46,18 +63,8 @@ void exportUtils(py::module& m);
 void exportCommon(py::module& common) {
     using namespace pybind11::literals;
     common.def("set_logging_level", [](const std::string &level, bool python_console_out) -> void {
-        spdlog::drop("console");
-        spdlog::set_sync_mode();
-        std::vector<spdlog::sink_ptr> sinks;
-        auto sink_stdout = std::make_shared<spdlog::sinks::ansicolor_sink>(spdlog::sinks::stdout_sink_mt::instance());
-        sinks.push_back(sink_stdout);
-        if(python_console_out) {
-            auto sink_pysink = std::make_shared<readdy::rpy::pysink>();
-            sinks.push_back(sink_pysink);
-        }
-        auto logger =  spdlog::create("console", std::begin(sinks), std::end(sinks));
-        logger->set_pattern("[          ] [%Y-%m-%d %H:%M:%S] [%t] [%l] %v");
-        logger->set_level([&level] {
+
+        auto l = [&level] {
             if (level == "trace") {
                 return spdlog::level::trace;
             }
@@ -81,47 +88,15 @@ void exportCommon(py::module& common) {
             }
             readdy::log::warn("Did not select a valid logging level, setting to debug!");
             return spdlog::level::debug;
-        }());
+        }();
 
-        if(python_console_out) {
-            // update python loggers level
-            py::gil_scoped_acquire gil;
-            auto logging_module = pybind11::module::import("logging");
-            auto args = py::dict("format"_a="%(message)s");
-            switch(logger->level()) {
-                case spdlog::level::trace:{
-                    /* fall through */
-                }
-                case spdlog::level::debug: {
-                    args["level"] = "DEBUG";
-                    break;
-                }
-                case spdlog::level::info: {
-                    args["level"] = "INFO";
-                    break;
-                }
-                case spdlog::level::warn: {
-                    args["level"] = "WARNING";
-                    break;
-                }
-                case spdlog::level::err: {
-                    args["level"] = "ERROR";
-                    break;
-                }
-                case spdlog::level::critical: {
-                    /* fall through */
-                }
-                case spdlog::level::off: {
-                    args["level"] = "CRITICAL";
-                    break;
-                }
-            }
-            logging_module.attr("basicConfig")(**args);
-        }
+        readdy::log::set_level(l);
+
     }, "Function that sets the logging level. Possible arguments: \"trace\", \"debug\", \"info\", \"warn\", "
                        "\"err\", \"error\", \"critical\", \"off\".", "level"_a, "python_console_out"_a = true);
     common.def("register_blosc_hdf5_plugin", []() -> void {
-        readdy::io::blosc_compression::initialize();
+        readdy::io::BloscFilter filter;
+        filter.registerFilter();
     });
     {
         py::module io = common.def_submodule("io", "ReaDDy IO module");
@@ -132,7 +107,15 @@ void exportCommon(py::module& common) {
         exportUtils(util);
     }
 
-    py::class_<readdy::model::Vec3>(common, "Vec")
+    py::class_<rpy::ReadableParticle>(common, "Particle")
+            .def_property_readonly("pos", &rpy::ReadableParticle::pos)
+            .def_property_readonly("type", &rpy::ReadableParticle::type)
+            .def_property_readonly("id", &rpy::ReadableParticle::id)
+            .def("__repr__", [](const rpy::ReadableParticle &self) {
+                return fmt::format("Particle(pos={}, type={}, id={})", self.pos(), self.type(), self.id());
+            });
+
+    py::class_<readdy::Vec3>(common, "Vec")
             .def(py::init<readdy::scalar, readdy::scalar, readdy::scalar>())
             .def(py::self + py::self)
             .def(py::self - py::self)
@@ -143,12 +126,33 @@ void exportCommon(py::module& common) {
             .def(py::self == py::self)
             .def(py::self != py::self)
             .def(py::self * py::self)
-            .def("__repr__", [](const readdy::model::Vec3 &self) {
+            .def_property("x", [](const readdy::Vec3 &self) { return self.x; },
+                          [](readdy::Vec3 &self, readdy::scalar x) { self.x = x; })
+            .def_property("y", [](const readdy::Vec3 &self) { return self.y; },
+                          [](readdy::Vec3 &self, readdy::scalar y) { self.y = y; })
+            .def_property("z", [](const readdy::Vec3 &self) { return self.x; },
+                          [](readdy::Vec3 &self, readdy::scalar z) { self.z = z; })
+            .def("toarray", [](const readdy::Vec3 &self) { return self.data; })
+            .def("__repr__", [](const readdy::Vec3 &self) {
                 std::ostringstream stream;
                 stream << self;
                 return stream.str();
             })
-            .def("__getitem__", [](const readdy::model::Vec3 &self, unsigned int i) {
+            .def("__getitem__", [](const readdy::Vec3 &self, unsigned int i) {
                 return self[i];
             });
+
+    py::class_<readdy::Matrix33>(common, "Matrix33", py::buffer_protocol())
+            .def_buffer([](readdy::Matrix33 &m) -> py::buffer_info {
+                return py::buffer_info(
+                        m.data().data(),
+                        sizeof(readdy::Matrix33::data_arr::value_type),
+                        py::format_descriptor<readdy::Matrix33::data_arr::value_type>::format(),
+                        2,
+                        {readdy::Matrix33::n(), readdy::Matrix33::m()},
+                        { sizeof(readdy::Matrix33::data_arr::value_type) * readdy::Matrix33::n(),
+                          sizeof(readdy::Matrix33::data_arr::value_type)}
+                );
+            });
+
 }

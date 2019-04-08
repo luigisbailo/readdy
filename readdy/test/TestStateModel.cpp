@@ -1,255 +1,214 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
 /**
  * @file TestStateModel.cpp
  * @brief Test the methods that manipulate time-dependent simulation data for kernels.
+ * @author clonker
  * @author chrisfroe
  * @date 25.08.16
  * @todo check force calculation through periodic boundary
  */
-#include <gtest/gtest.h>
+
+#include <catch2/catch.hpp>
+
 #include <readdy/testing/Utils.h>
 #include <readdy/testing/KernelTest.h>
 
 namespace m = readdy::model;
 
-namespace {
+using namespace readdytesting::kernel;
 
-class TestStateModel : public KernelTest {
+TEMPLATE_TEST_CASE("Test state model", "[state-model]", SingleCPU, CPU) {
+    auto kernel = create<TestType>();
+    SECTION("Calculate force between two particles") {
+        m::Context &ctx = kernel->context();
+        auto &stateModel = kernel->stateModel();
 
-};
+        auto obs = kernel->observe().forces(1);
+        auto conn = kernel->connectObservable(obs.get());
+        // two A particles with radius 1. -> cutoff 2, distance 1.8 -> r-r_0 = 0.2 -> force = 0.2
+        ctx.particleTypes().add("A", 1.0);
+        ctx.boxSize() = {{4., 4., 4.}};
+        ctx.periodicBoundaryConditions() = {{false, false, false}};
 
-TEST_P(TestStateModel, CalculateForcesTwoParticles) {
-    m::KernelContext &ctx = kernel->getKernelContext();
-    auto &stateModel = kernel->getKernelStateModel();
+        ctx.potentials().addBox("A", .001, {-1.9, -1.9, -1.9}, {3.8, 3.8, 3.8});
 
-    auto obs = kernel->createObservable<m::observables::Forces>(1);
-    auto conn = kernel->connectObservable(obs.get());
-    // two A particles with radius 1. -> cutoff 2, distance 1.8 -> r-r_0 = 0.2 -> force = 0.2
-    ctx.particle_types().add("A", 1.0, 1.0);
-    ctx.setBoxSize(4., 4., 4.);
-    ctx.setPeriodicBoundary(false, false, false);
+        ctx.potentials().addHarmonicRepulsion("A", "A", 1.0, 2.0);
+        ctx.potentials().addBox("A", .01, {-1.9, -1.9, -1.9}, {3.8, 3.8, 3.8});
 
-    kernel->registerPotential<m::potentials::HarmonicRepulsion>("A", "A", 1.0);
+        kernel->initialize();
+        auto typeIdA = ctx.particleTypes().idOf("A");
+        auto twoParticles = std::vector<m::Particle> {m::Particle(0., 0., 0., typeIdA), m::Particle(0., 0., 1.8, typeIdA)};
 
-    ctx.configure();
-    auto typeIdA = ctx.particle_types().id_of("A");
-    auto twoParticles = std::vector<m::Particle> {m::Particle(0., 0., 0., typeIdA), m::Particle(0., 0., 1.8, typeIdA)};
-    stateModel.addParticles(twoParticles);
-    stateModel.updateNeighborList();
-    stateModel.calculateForces();
-    stateModel.calculateForces(); // calculating twice should yield the same result. force and energy must not accumulate
-    // check results
-    obs->evaluate();
-    auto forcesIt = obs->getResult().begin();
-    if(readdy::double_precision) {
-        EXPECT_VEC3_EQ(*forcesIt, m::Vec3(0, 0, -0.2));
-    } else {
-        EXPECT_FVEC3_EQ(*forcesIt, m::Vec3(0, 0, -0.2));
-    }
-    ++forcesIt;
-    if(readdy::double_precision) {
-        EXPECT_VEC3_EQ(*forcesIt, m::Vec3(0, 0, 0.2));
-    } else {
-        EXPECT_FVEC3_EQ(*forcesIt, m::Vec3(0, 0, 0.2));
-    }
-    if(readdy::double_precision) {
-        EXPECT_DOUBLE_EQ(stateModel.getEnergy(), 0.02);
-    } else {
-        EXPECT_NEAR(stateModel.getEnergy(), 0.02, 1e-8);
-    }
-}
+        stateModel.addParticles(twoParticles);
+        stateModel.initializeNeighborList(ctx.calculateMaxCutoff());
+        stateModel.updateNeighborList();
 
-TEST_P(TestStateModel, CalculateForcesRepulsion) {
-    m::KernelContext &ctx = kernel->getKernelContext();
-    auto &stateModel = kernel->getKernelStateModel();
-
-    // similar situation as before but now with repulsion between A and B
-    auto obs = kernel->createObservable<m::observables::Forces>(1);
-    auto conn = kernel->connectObservable(obs.get());
-    ctx.particle_types().add("A", 1.0, 1.0);
-    ctx.particle_types().add("B", 1.0, 2.0);
-    ctx.setBoxSize(10., 10., 10.);
-    ctx.setPeriodicBoundary(true, true, false);
-
-    kernel->registerPotential<m::potentials::HarmonicRepulsion>("A", "B", 1.0);
-
-    ctx.configure();
-    auto typeIdA = ctx.particle_types().id_of("A");
-    auto typeIdB = ctx.particle_types().id_of("B");
-    /**
-     * There are 6 particles. 0-2 are A particles. 3-5 are B particles.
-     * The second B particle is a bit further away
-     * -> There are forces between all AB pairs except with the second B particle, namely particle 4
-     */
-    auto particlesA = std::vector<m::Particle> {
-            m::Particle(0, 0, 0, typeIdA), m::Particle(0, 0.8, 0, typeIdA), m::Particle(0.2, 0, -0.2, typeIdA)
-    };
-    auto particlesB = std::vector<m::Particle> {
-            m::Particle(0, 0, 0.1, typeIdB), m::Particle(-1.8, -4.0, 1.8, typeIdB), m::Particle(0.5, 0, 0, typeIdB)
-    };
-    std::vector<m::Particle::id_type> ids;
-    {
-        std::for_each(particlesA.begin(), particlesA.end(), [&ids](const m::Particle& p) { ids.push_back(p.getId());});
-        std::for_each(particlesB.begin(), particlesB.end(), [&ids](const m::Particle& p) { ids.push_back(p.getId());});
-    }
-    stateModel.addParticles(particlesA);
-    stateModel.addParticles(particlesB);
-    {
-        const auto foo = stateModel.getParticles();
-        for(const auto& bar : foo) {
-            readdy::log::trace("got particle: {}", bar);
-        }
-    }
-    stateModel.updateNeighborList();
-    {
-        const auto foo = stateModel.getParticles();
-        for(const auto& bar : foo) {
-            readdy::log::trace("-> got particle: {}", bar);
-        }
-    }
-    stateModel.calculateForces();
-    {
-        {
-            const auto foo = stateModel.getParticles();
-            for(const auto& bar : foo) {
-                readdy::log::trace("--> got particle: {}", bar);
-            }
-        }
-    }
-    // handcalculated expectations
-    const readdy::scalar energy03 = 4.205;
-    const readdy::scalar energy05 = 3.125;
-    const readdy::scalar energy13 = 2.4063226755104354;
-    const readdy::scalar energy15 = 2.1148056603830194;
-    const readdy::scalar energy23 = 3.4833346173608031;
-    const readdy::scalar energy25 = 3.4833346173608031;
-    const m::Vec3 force03(0, 0, -2.9);
-    const m::Vec3 force05(-2.5, 0, 0);
-    const m::Vec3 force13(0, 2.1768336301410027, -0.27210420376762534);
-    const m::Vec3 force15(-1.08999682000954, 1.743994912015264, 0);
-    const m::Vec3 force23(1.4641005886756873, 0, -2.1961508830135306);
-    const m::Vec3 force25(-2.1961508830135306, 0, -1.4641005886756873);
-    // check results
-    obs->evaluate();
-    const auto particles = stateModel.getParticles();
-    {
-        {
-            const auto foo = stateModel.getParticles();
-            for(const auto& bar : foo) {
-                readdy::log::trace("---> got particle: {}", bar);
-            }
-        }
-    }
-    const auto& forces = obs->getResult();
-    std::size_t idx = 0;
-    for(const auto& particle : particles) {
-        if(particle.getId() == ids.at(0)) {
-            if(readdy::double_precision) {
-                EXPECT_VEC3_EQ(forces.at(idx), force03 + force05) << "force on particle 0 = force03 + force05";
-            } else {
-                EXPECT_FVEC3_EQ(forces.at(idx), force03 + force05) << "force on particle 0 = force03 + force05";
-            }
-        } else if(particle.getId() == ids.at(1)) {
-            if(readdy::double_precision) {
-                EXPECT_VEC3_EQ(forces.at(idx), force13 + force15) << "force on particle 1 = force13 + force15";
-            } else {
-                EXPECT_FVEC3_EQ(forces.at(idx), force13 + force15) << "force on particle 1 = force13 + force15";
-            }
-        } else if(particle.getId() == ids.at(2)) {
-            if(readdy::double_precision) {
-                EXPECT_VEC3_EQ(forces.at(idx), force23 + force25) << "force on particle 2 = force23 + force25";
-            } else {
-                EXPECT_FVEC3_EQ(forces.at(idx), force23 + force25) << "force on particle 2 = force23 + force25";
-            }
-        } else if(particle.getId() == ids.at(3)) {
-            if(readdy::double_precision) {
-                EXPECT_VEC3_EQ(forces.at(idx), (-1. * force03) - force13 - force23)
-                                    << "force on particle 3 = - force03 - force13 - force23";
-            } else {
-                EXPECT_FVEC3_EQ(forces.at(idx), (-1. * force03) - force13 - force23)
-                                    << "force on particle 3 = - force03 - force13 - force23";
-            }
-        } else if(particle.getId() == ids.at(4)) {
-            if(readdy::double_precision) {
-                EXPECT_VEC3_EQ(forces.at(idx), m::Vec3(0, 0, 0)) << "force on particle 4 = 0";
-            } else {
-                EXPECT_FVEC3_EQ(forces.at(idx), m::Vec3(0, 0, 0)) << "force on particle 4 = 0";
-            }
-        } else if(particle.getId() == ids.at(5)) {
-            if(readdy::double_precision) {
-                EXPECT_VEC3_EQ(forces.at(idx), (-1. * force05) - force15 - force25)
-                                    << "force on particle 5 = - force05 - force15 - force25";
-            } else {
-                EXPECT_FVEC3_EQ(forces.at(idx), (-1. * force05) - force15 - force25)
-                                    << "force on particle 5 = - force05 - force15 - force25";
-            }
+        auto calculateForces = kernel->actions().calculateForces();
+        calculateForces->perform();
+        calculateForces->perform(); // calculating twice should yield the same result. force and energy must not accumulate
+        // check results
+        obs->evaluate();
+        auto forcesIt = obs->getResult().begin();
+        if(kernel->doublePrecision()) {
+            readdy::testing::vec3eq(*forcesIt, readdy::Vec3(0, 0, -0.2));
         } else {
-            readdy::log::error("Got an unexpected particle id: {}", particle.getId());
-            FAIL() << "Got an unexpected particle id: " << particle.getId();
+            readdy::testing::vec3eq(*forcesIt, readdy::Vec3(0, 0, -0.2));
         }
-        ++idx;
+        ++forcesIt;
+        if(kernel->doublePrecision()) {
+            readdy::testing::vec3eq(*forcesIt, readdy::Vec3(0, 0, 0.2));
+        } else {
+            readdy::testing::vec3eq(*forcesIt, readdy::Vec3(0, 0, 0.2));
+        }
+        REQUIRE(stateModel.energy() == Approx(0.02));
     }
 
-    const readdy::scalar totalEnergy = energy03 + energy05 + energy13 + energy15 + energy23 + energy25;
-    if(readdy::single_precision) {
-        EXPECT_FLOAT_EQ(stateModel.getEnergy(), totalEnergy);
-    } else {
-        EXPECT_DOUBLE_EQ(stateModel.getEnergy(), totalEnergy);
+    SECTION("Calculate repulsion forces") {
+        m::Context &ctx = kernel->context();
+        auto calculateForces = kernel->actions().calculateForces();
+        auto &stateModel = kernel->stateModel();
+
+        // similar situation as before but now with repulsion between A and B
+        auto obs = kernel->observe().forces(1);
+        auto conn = kernel->connectObservable(obs.get());
+        ctx.particleTypes().add("A", 1.0);
+        ctx.particleTypes().add("B", 1.0);
+        ctx.boxSize() = {{10., 10., 10.}};
+        ctx.periodicBoundaryConditions() = {{true, true, false}};
+        ctx.potentials().addHarmonicRepulsion("A", "B", 1.0, 3.0);
+        kernel->context().potentials().addBox("A", .01, {-4.9, -4.9, -4.9}, {9.8, 9.8, 9.8});
+        kernel->context().potentials().addBox("B", .01, {-4.9, -4.9, -4.9}, {9.8, 9.8, 9.8});
+
+        auto typeIdA = ctx.particleTypes().idOf("A");
+        auto typeIdB = ctx.particleTypes().idOf("B");
+        /**
+         * There are 6 particles. 0-2 are A particles. 3-5 are B particles.
+         * The second B particle is a bit further away
+         * -> There are forces between all AB pairs except with the second B particle, namely particle 4
+         */
+        auto particlesA = std::vector<m::Particle> {
+                m::Particle(0, 0, 0, typeIdA), m::Particle(0, 0.8, 0, typeIdA), m::Particle(0.2, 0, -0.2, typeIdA)
+        };
+        auto particlesB = std::vector<m::Particle> {
+                m::Particle(0, 0, 0.1, typeIdB), m::Particle(-1.8, -4.0, 1.8, typeIdB), m::Particle(0.5, 0, 0, typeIdB)
+        };
+        std::vector<m::Particle::id_type> ids;
+        {
+            std::for_each(particlesA.begin(), particlesA.end(), [&ids](const m::Particle& p) { ids.push_back(p.id());});
+            std::for_each(particlesB.begin(), particlesB.end(), [&ids](const m::Particle& p) { ids.push_back(p.id());});
+        }
+        stateModel.addParticles(particlesA);
+        stateModel.addParticles(particlesB);
+        kernel->initialize();
+        stateModel.initializeNeighborList(ctx.calculateMaxCutoff());
+        stateModel.updateNeighborList();
+        calculateForces->perform();
+
+        // by hand calculated expectations
+        const readdy::scalar energy03 = 4.205;
+        const readdy::scalar energy05 = 3.125;
+        const readdy::scalar energy13 = 2.4063226755104354;
+        const readdy::scalar energy15 = 2.1148056603830194;
+        const readdy::scalar energy23 = 3.4833346173608031;
+        const readdy::scalar energy25 = 3.4833346173608031;
+        const readdy::Vec3 force03(0, 0, -2.9);
+        const readdy::Vec3 force05(-2.5, 0, 0);
+        const readdy::Vec3 force13(0, 2.1768336301410027, -0.27210420376762534);
+        const readdy::Vec3 force15(-1.08999682000954, 1.743994912015264, 0);
+        const readdy::Vec3 force23(1.4641005886756873, 0, -2.1961508830135306);
+        const readdy::Vec3 force25(-2.1961508830135306, 0, -1.4641005886756873);
+
+        // check results
+        obs->evaluate();
+        const auto particles = stateModel.getParticles();
+        const auto& forces = obs->getResult();
+        std::size_t idx = 0;
+        for(const auto& particle : particles) {
+            if(particle.id() == ids.at(0)) {
+                readdy::testing::vec3eq(forces.at(idx), force03 + force05);
+            } else if(particle.id() == ids.at(1)) {
+                readdy::testing::vec3eq(forces.at(idx), force13 + force15);
+            } else if(particle.id() == ids.at(2)) {
+                readdy::testing::vec3eq(forces.at(idx), force23 + force25);
+            } else if(particle.id() == ids.at(3)) {
+                readdy::testing::vec3eq(forces.at(idx), (-1. * force03) - force13 - force23);
+            } else if(particle.id() == ids.at(4)) {
+                readdy::testing::vec3eq(forces.at(idx), readdy::Vec3(0, 0, 0));
+            } else if(particle.id() == ids.at(5)) {
+                readdy::testing::vec3eq(forces.at(idx), (-1. * force05) - force15 - force25);
+            } else {
+                readdy::log::error("Got an unexpected particle id: {}", particle.id());
+                FAIL();
+            }
+            ++idx;
+        }
+
+        const readdy::scalar totalEnergy = energy03 + energy05 + energy13 + energy15 + energy23 + energy25;
+        REQUIRE(stateModel.energy() == Approx(totalEnergy));
     }
-}
 
-TEST_P(TestStateModel, CalculateForcesNoForces) {
-    m::KernelContext &ctx = kernel->getKernelContext();
-    auto &stateModel = kernel->getKernelStateModel();
-
-    // several particles without potentials -> forces must all be zero
-    auto obs = kernel->createObservable<m::observables::Forces>(1);
-    auto conn = kernel->connectObservable(obs.get());
-    ctx.particle_types().add("A", 1.0, 1.0);
-    ctx.particle_types().add("B", 1.0, 2.0);
-    ctx.setBoxSize(4., 4., 4.);
-    ctx.setPeriodicBoundary(false, false, false);
-    ctx.configure();
-    auto typeIdA = ctx.particle_types().id_of("A");
-    auto typeIdB = ctx.particle_types().id_of("B");
-    auto particlesA = std::vector<m::Particle> {
-            m::Particle(0, 0, 0, typeIdA), m::Particle(0, 0.8, 0, typeIdA), m::Particle(0.2, 0, -0.2, typeIdA)
-    };
-    auto particlesB = std::vector<m::Particle> {
-            m::Particle(0, 0, 0.1, typeIdB), m::Particle(-1.8, 0, 1.8, typeIdB), m::Particle(0.5, 0, 0, typeIdB)
-    };
-    stateModel.addParticles(particlesA);
-    stateModel.addParticles(particlesB);
-    stateModel.updateNeighborList();
-    stateModel.calculateForces();
-    // check results
-    obs->evaluate();
-    for (auto &&force : obs->getResult()) {
-        EXPECT_VEC3_EQ(force, m::Vec3(0, 0, 0));
+    SECTION("Calculate no forces") {
+        m::Context &ctx = kernel->context();
+        auto &stateModel = kernel->stateModel();
+        auto calculateForces = kernel->actions().calculateForces();
+        // several particles without potentials -> forces must all be zero
+        auto obs = kernel->observe().forces(1);
+        auto conn = kernel->connectObservable(obs.get());
+        ctx.particleTypes().add("A", 1.0);
+        ctx.particleTypes().add("B", 1.0);
+        ctx.boxSize() = {{4., 4., 4.}};
+        ctx.periodicBoundaryConditions() = {{false, false, false}};
+        ctx.potentials().addBox("A", .00000001, {-1.9, -1.9, -1.9}, {3.85, 3.85, 3.85});
+        ctx.potentials().addBox("B", .00000001, {-1.9, -1.9, -1.9}, {3.85, 3.85, 3.85});
+        auto typeIdA = ctx.particleTypes().idOf("A");
+        auto typeIdB = ctx.particleTypes().idOf("B");
+        auto particlesA = std::vector<m::Particle> {
+                m::Particle(0, 0, 0, typeIdA), m::Particle(0, 0.8, 0, typeIdA), m::Particle(0.2, 0, -0.2, typeIdA)
+        };
+        auto particlesB = std::vector<m::Particle> {
+                m::Particle(0, 0, 0.1, typeIdB), m::Particle(-1.8, 0, 1.8, typeIdB), m::Particle(0.5, 0, 0, typeIdB)
+        };
+        stateModel.addParticles(particlesA);
+        stateModel.addParticles(particlesB);
+        calculateForces->perform();
+        // check results
+        obs->evaluate();
+        for (auto &&force : obs->getResult()) {
+            readdy::testing::vec3eq(force, readdy::Vec3(0, 0, 0));
+        }
     }
-}
-
-INSTANTIATE_TEST_CASE_P(TestStateModel, TestStateModel,
-                        ::testing::ValuesIn(readdy::testing::getKernelsToTest()));
 }

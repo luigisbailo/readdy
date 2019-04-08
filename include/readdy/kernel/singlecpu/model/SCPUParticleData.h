@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -50,12 +63,12 @@ struct Entry {
     using topology_index_type = std::ptrdiff_t;
 
     explicit Entry(const particle_type &particle)
-            : pos(particle.getPos()), force(force_type()), type(particle.getType()), deactivated(false),
-              displacement(0), id(particle.getId()) {}
+            : pos(particle.pos()), force(force_type()), type(particle.type()), deactivated(false),
+              displacement(0), id(particle.id()) {}
 
-    Entry(const Entry &) = delete;
+    Entry(const Entry &) = default;
 
-    Entry &operator=(const Entry &) = delete;
+    Entry &operator=(const Entry &) = default;
 
     Entry(Entry &&) noexcept = default;
 
@@ -63,9 +76,13 @@ struct Entry {
 
     ~Entry() = default;
 
-    bool is_deactivated() const;
+    bool is_deactivated() const {
+        return deactivated;
+    }
 
-    const particle_type::pos_type &position() const;
+    const particle_type::pos_type &position() const {
+        return pos;
+    }
 
     force_type force;
     displacement_type displacement;
@@ -79,6 +96,7 @@ struct Entry {
 class SCPUParticleData {
 public:
 
+    using entry_type = Entry;
     using entries_vec = std::vector<Entry>;
     using entry_index = entries_vec::size_type;
     using new_entries = std::vector<Entry>;
@@ -99,54 +117,117 @@ public:
 
     readdy::model::Particle getParticle(entry_index index) const;
 
-    readdy::model::Particle toParticle(const Entry &e) const;
+    readdy::model::Particle toParticle(const Entry &e) const {
+        return readdy::model::Particle(e.pos, e.type, e.id);
+    }
 
-    void addParticle(const particle_type &particle);
+    void addParticle(const particle_type &particle) {
+        addParticles({particle});
+    }
 
-    void addParticles(const std::vector<particle_type> &particles);
+    void addParticles(const std::vector<particle_type> &particles) {
+        for(const auto& p : particles) {
+            if(!_blanks.empty()) {
+                const auto idx = _blanks.back();
+                _blanks.pop_back();
+                entries.at(idx) = Entry{p};
+            } else {
+                entries.emplace_back(p);
+            }
+        }
+    }
 
     std::vector<entries_vec::size_type> addTopologyParticles(const std::vector<top_particle_type> &particles);
 
     void removeParticle(const particle_type &particle);
 
-    void removeParticle(size_t index);
+    void removeParticle(size_t index) {
+        auto& p = *(entries.begin() + index);
+        if(!p.deactivated) {
+            _blanks.push_back(index);
+            p.deactivated = true;
+            // neighbors.at(index).clear();
+        } else {
+            log::error("Tried to remove particle (index={}), that was already removed!", index);
+        }
+    }
 
-    iterator begin();
+    iterator begin() {
+        return entries.begin();
+    }
 
-    iterator end();
+    iterator end() {
+        return entries.end();
+    }
 
-    const_iterator cbegin() const;
+    const_iterator cbegin() const {
+        return entries.cbegin();
+    }
 
-    const_iterator cend() const;
+    const_iterator cend() const {
+        return entries.cend();
+    }
 
-    const_iterator begin() const;
+    const_iterator begin() const {
+        return entries.begin();
+    }
 
-    const_iterator end() const;
+    const_iterator end() const {
+        return entries.end();
+    }
 
-    Entry &entry_at(entry_index);
+    Entry &entry_at(entry_index idx) {
+        return entries.at(idx);
+    }
 
-    entry_index size() const;
+    entry_index size() const {
+        return entries.size();
+    }
 
-    entry_index n_deactivated() const;
+    entry_index n_deactivated() const {
+        return _blanks.size();
+    }
 
-    void reserve(std::size_t n);
+    void reserve(std::size_t n) {
+        entries.reserve(n);
+    }
 
-    void clear();
+    void clear() {
+        entries.clear();
+        _blanks.clear();
+    }
 
-    const Entry &entry_at(entry_index) const;
+    const Entry &entry_at(entry_index idx) const {
+        return entries.at(idx);
+    }
 
-    const Entry &centry_at(entry_index) const;
+    const Entry &centry_at(entry_index idx) const {
+        return entries.at(idx);
+    }
 
-    entry_index addEntry(Entry &&entry);
+    entry_index addEntry(Entry entry) {
+        if(!_blanks.empty()) {
+            const auto idx = _blanks.back();
+            _blanks.pop_back();
+            entries.at(idx) = entry;
+            return idx;
+        }
+        entries.push_back(entry);
+        return entries.size()-1;
+    }
 
     void removeEntry(entry_index entry);
 
     std::vector<entry_index> update(entries_update&&);
+    
+    const std::vector<entry_index> &blanks() const {
+        return _blanks;
+    }
 
 protected:
 
     entries_vec entries;
-    std::vector<entry_index> blanks;
+    std::vector<entry_index> _blanks;
 
 };
 

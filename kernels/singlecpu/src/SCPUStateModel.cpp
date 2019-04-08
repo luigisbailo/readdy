@@ -1,29 +1,42 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
 /**
  * << detailed description >>
  *
- * @file SingleCPUKernelStateModel.cpp
+ * @file SCPUStateModel.cpp
  * @brief << brief description >>
  * @author clonker
  * @date 19.04.16
@@ -31,46 +44,21 @@
 
 #include <algorithm>
 #include <readdy/kernel/singlecpu/SCPUStateModel.h>
-#include <readdy/common/index_persistent_vector.h>
 
 namespace readdy {
 namespace kernel {
 namespace scpu {
-struct SCPUStateModel::Impl {
-    using reaction_counts_order1_map = SCPUStateModel::reaction_counts_order1_map;
-    using reaction_counts_order2_map = SCPUStateModel::reaction_counts_order2_map;
-    scalar currentEnergy = 0;
-    model::SCPUParticleData particleData {};
-    std::unique_ptr<model::SCPUNeighborList> neighborList;
-    SCPUStateModel::topology_action_factory const *topologyActionFactory {nullptr};
-    readdy::model::KernelContext const *context {nullptr};
-    // only filled when readdy::model::KernelContext::recordReactionsWithPositions is true
-    std::vector<readdy::model::reactions::ReactionRecord> reactionRecords{};
-    // reaction counts map from particle-type (or type-pair) to vector of count numbers,
-    // the position in the vector corresponds to the reaction index,
-    // i.e. for each particle-type (or type-pair) there is a new reaction index space
-    std::pair<reaction_counts_order1_map, reaction_counts_order2_map> reactionCounts;
-};
 
-SCPUStateModel::SCPUStateModel(readdy::model::KernelContext const *context, topology_action_factory const *const taf)
-        : pimpl(std::make_unique<SCPUStateModel::Impl>()) {
-    pimpl->neighborList = std::make_unique<model::SCPUNeighborList>(context);
-    pimpl->context = context;
-    pimpl->topologyActionFactory = taf;
+SCPUStateModel::SCPUStateModel(const readdy::model::Context &context, topology_action_factory const *const taf)
+        : _context(context) {
+    neighborList = std::make_unique<model::CellLinkedList>(particleData, context);
+    topologyActionFactory = taf;
 }
 
-void readdy::kernel::scpu::SCPUStateModel::addParticle(const readdy::model::Particle &p) {
-    pimpl->particleData.addParticles({p});
-}
-
-void readdy::kernel::scpu::SCPUStateModel::addParticles(const std::vector<readdy::model::Particle> &p) {
-    pimpl->particleData.addParticles(p);
-}
-
-const std::vector<readdy::model::Vec3>
+const std::vector<Vec3>
 readdy::kernel::scpu::SCPUStateModel::getParticlePositions() const {
-    const auto &data = pimpl->particleData;
-    std::vector<readdy::model::Vec3> target{};
+    const auto &data = particleData;
+    std::vector<Vec3> target{};
     target.reserve(data.size());
     for (const auto &entry : data) {
         if (!entry.is_deactivated()) target.push_back(entry.position());
@@ -78,28 +66,8 @@ readdy::kernel::scpu::SCPUStateModel::getParticlePositions() const {
     return target;
 }
 
-model::SCPUParticleData *readdy::kernel::scpu::SCPUStateModel::getParticleData() const {
-    return &pimpl->particleData;
-}
-
-void readdy::kernel::scpu::SCPUStateModel::removeParticle(const readdy::model::Particle &p) {
-    pimpl->particleData.removeParticle(p);
-}
-
-scalar readdy::kernel::scpu::SCPUStateModel::getEnergy() const {
-    return pimpl->currentEnergy;
-}
-
-void readdy::kernel::scpu::SCPUStateModel::increaseEnergy(scalar increase) {
-    pimpl->currentEnergy += increase;
-}
-
-const model::SCPUNeighborList *SCPUStateModel::getNeighborList() const {
-    return pimpl->neighborList.get();
-}
-
 const std::vector<readdy::model::Particle> SCPUStateModel::getParticles() const {
-    const auto &data = pimpl->particleData;
+    const auto &data = particleData;
     std::vector<readdy::model::Particle> result;
     result.reserve(data.size());
     for (const auto &entry : data) {
@@ -110,119 +78,22 @@ const std::vector<readdy::model::Particle> SCPUStateModel::getParticles() const 
     return result;
 }
 
-void SCPUStateModel::updateNeighborList(scalar skin) {
-    pimpl->neighborList->create(pimpl->particleData, skin);
-}
 
-void SCPUStateModel::calculateForces() {
-    pimpl->currentEnergy = 0;
-    // update forces and energy order 1 potentials
-    {
-        const readdy::model::Vec3 zero{0, 0, 0};
-        for (auto &e : pimpl->particleData) {
-            e.force = zero;
-            for (const auto &po1 : pimpl->context->potentials().potentials_of(e.type)) {
-                po1->calculateForceAndEnergy(e.force, pimpl->currentEnergy, e.position());
-            }
-        }
-    }
-
-    // update forces and energy order 2 potentials
-    {
-        const auto &difference = pimpl->context->getShortestDifferenceFun();
-        readdy::model::Vec3 forceVec{0, 0, 0};
-        for (auto it = pimpl->neighborList->begin(); it != pimpl->neighborList->end(); ++it) {
-            auto i = it->idx1;
-            auto j = it->idx2;
-            auto &entry_i = pimpl->particleData.entry_at(i);
-            auto &entry_j = pimpl->particleData.entry_at(j);
-            const auto &potentials = pimpl->context->potentials().potentials_of(entry_i.type, entry_j.type);
-            for (const auto &potential : potentials) {
-                potential->calculateForceAndEnergy(forceVec, pimpl->currentEnergy, difference(entry_i.position(), entry_j.position()));
-                entry_i.force += forceVec;
-                entry_j.force += -1 * forceVec;
-            }
-        }
-    }
-    // update forces and energy for topologies
-    {
-        for ( auto &topology : _topologies) {
-            if(!topology->isDeactivated()) {
-                // calculate bonded potentials
-                for (const auto &bondedPot : topology->getBondedPotentials()) {
-                    auto energy = bondedPot->createForceAndEnergyAction(pimpl->topologyActionFactory)->perform(topology.get());
-                    pimpl->currentEnergy += energy;
-                }
-                for (const auto &anglePot : topology->getAnglePotentials()) {
-                    auto energy = anglePot->createForceAndEnergyAction(pimpl->topologyActionFactory)->perform(topology.get());
-                    pimpl->currentEnergy += energy;
-                }
-                for (const auto &torsionPot : topology->getTorsionPotentials()) {
-                    auto energy = torsionPot->createForceAndEnergyAction(pimpl->topologyActionFactory)->perform(topology.get());
-                    pimpl->currentEnergy += energy;
-                }
-            }
-        }
-    }
-}
-
-void SCPUStateModel::clearNeighborList() {
-    pimpl->neighborList->clear();
-}
-
-void SCPUStateModel::removeAllParticles() {
-    pimpl->particleData.clear();
-}
-
-readdy::model::top::GraphTopology *const SCPUStateModel::addTopology(const std::vector<readdy::model::TopologyParticle> &particles) {
-    std::vector<std::size_t> ids = pimpl->particleData.addTopologyParticles(particles);
-    std::vector<particle_type_type> types;
+readdy::model::top::GraphTopology *const SCPUStateModel::addTopology(TopologyTypeId type, const std::vector<readdy::model::TopologyParticle> &particles) {
+    std::vector<std::size_t> ids = particleData.addTopologyParticles(particles);
+    std::vector<ParticleTypeId> types;
     types.reserve(ids.size());
     for (const auto &p : particles) {
-        types.push_back(p.getType());
+        types.push_back(p.type());
     }
     auto it = _topologies.emplace_back(
-            std::make_unique<topology>(std::move(ids), std::move(types), std::cref(pimpl->context->topology_potentials()))
+            std::make_unique<topology>(type, std::move(ids), std::move(types), _context.get(), this)
     );
     const auto idx = std::distance(topologies().begin(), it);
     for(const auto p : (*it)->getParticles()) {
-        pimpl->particleData.entry_at(p).topology_index = idx;
+        particleData.entry_at(p).topology_index = idx;
     }
     return it->get();
-}
-
-std::vector<readdy::model::reactions::ReactionRecord> &SCPUStateModel::reactionRecords() {
-    return pimpl->reactionRecords;
-}
-
-const std::vector<readdy::model::reactions::ReactionRecord> &SCPUStateModel::reactionRecords() const {
-    return pimpl->reactionRecords;
-}
-
-std::pair<SCPUStateModel::reaction_counts_order1_map, SCPUStateModel::reaction_counts_order2_map> &SCPUStateModel::reactionCounts() {
-    return pimpl->reactionCounts;
-}
-
-const std::pair<SCPUStateModel::reaction_counts_order1_map, SCPUStateModel::reaction_counts_order2_map> &SCPUStateModel::reactionCounts() const {
-    return pimpl->reactionCounts;
-}
-
-readdy::model::Particle SCPUStateModel::getParticleForIndex(const std::size_t index) const {
-    return pimpl->particleData.getParticle(index);
-}
-
-void SCPUStateModel::expected_n_particles(const std::size_t n) {
-    if (pimpl->particleData.size() < n) {
-        pimpl->particleData.reserve(n);
-    }
-}
-
-const SCPUStateModel::topologies_vec &SCPUStateModel::topologies() const {
-    return _topologies;
-}
-
-SCPUStateModel::topologies_vec &SCPUStateModel::topologies() {
-    return _topologies;
 }
 
 std::vector<readdy::model::top::GraphTopology*> SCPUStateModel::getTopologies() {
@@ -236,12 +107,8 @@ std::vector<readdy::model::top::GraphTopology*> SCPUStateModel::getTopologies() 
     return result;
 }
 
-particle_type_type SCPUStateModel::getParticleType(const std::size_t index) const {
-    return getParticleData()->entry_at(index).type;
-}
-
 const readdy::model::top::GraphTopology *SCPUStateModel::getTopologyForParticle(readdy::model::top::Topology::particle_index particle) const {
-    const auto& entry = pimpl->particleData.entry_at(particle);
+    const auto& entry = particleData.entry_at(particle);
     if(!entry.deactivated) {
         if(entry.topology_index >= 0) {
             return _topologies.at(static_cast<topologies_vec::size_type>(entry.topology_index)).get();
@@ -253,7 +120,7 @@ const readdy::model::top::GraphTopology *SCPUStateModel::getTopologyForParticle(
 }
 
 readdy::model::top::GraphTopology *SCPUStateModel::getTopologyForParticle(readdy::model::top::Topology::particle_index particle) {
-    const auto& entry = pimpl->particleData.entry_at(particle);
+    const auto& entry = particleData.entry_at(particle);
     if(!entry.deactivated) {
         if(entry.topology_index >= 0) {
             return _topologies.at(static_cast<topologies_vec::size_type>(entry.topology_index)).get();
@@ -268,17 +135,54 @@ void SCPUStateModel::insert_topology(SCPUStateModel::topology &&top) {
     auto it = _topologies.push_back(std::make_unique<topology>(std::move(top)));
     auto idx = std::distance(_topologies.begin(), it);
     const auto& particles = it->get()->getParticles();
-    auto& data = pimpl->particleData;
+    auto& data = particleData;
     std::for_each(particles.begin(), particles.end(), [idx, &data](const topology::particle_index p) {
         data.entry_at(p).topology_index = idx;
     });
 }
 
-SCPUStateModel &SCPUStateModel::operator=(SCPUStateModel &&rhs) noexcept = default;
+void SCPUStateModel::resetReactionCounts() {
+    if(!reactionCounts().empty()) {
+        for(auto &e : reactionCounts()) {
+            e.second = 0;
+        }
+    } else {
+        const auto &reactions = _context.get().reactions();
+        for (const auto &entry : reactions.order1()) {
+            for (auto reaction : entry.second) {
+                reactionCounts()[reaction->id()] = 0;
+            }
+        }
+        for (const auto &entry : reactions.order2()) {
+            for (auto reaction : entry.second) {
+                reactionCounts()[reaction->id()] = 0;
+            }
+        }
+    }
+}
 
-SCPUStateModel::SCPUStateModel(SCPUStateModel &&rhs) noexcept = default;
+void SCPUStateModel::toDenseParticleIndices(std::vector<std::size_t>::iterator begin,
+                                            std::vector<std::size_t>::iterator end) const {
+    const auto &blanks = particleData.blanks();
+    std::transform(begin, end, begin, [&blanks](const std::size_t &ix) {
+        auto result = ix;
+        for(auto blankIx : blanks) {
+            if(blankIx < ix) {
+                --result;
+            }
+        }
+        return result;
+    });
+}
 
-SCPUStateModel::~SCPUStateModel() = default;
+void SCPUStateModel::clear() {
+    particleData.clear();
+    _topologies.clear();
+    reactionRecords().clear();
+    resetReactionCounts();
+    virial() = {};
+    energy() = 0;
+}
 
 }
 }

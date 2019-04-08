@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -32,6 +45,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include <readdy/model/Kernel.h>
 
 NAMESPACE_BEGIN(readdy)
@@ -45,12 +60,20 @@ NAMESPACE_BEGIN(plugin)
 class KernelDeleter {
     std::shared_ptr<readdy::util::dll::shared_library> ptr;
 public:
-    // internal kernel
+    /**
+     * Creates a KernelDeleter for an internal kernel (which is already included in the core library)
+     */
     KernelDeleter();
 
-    // external kernel
+    /**
+     * Creates a KernelDeleter for an external kernel (i.e., from a shared library)
+     * @param libPtr pointer to the library
+     */
     explicit KernelDeleter(const std::shared_ptr<readdy::util::dll::shared_library> &libPtr);
 
+    /**
+     * delete that kernel!
+     */
     void operator()(readdy::model::Kernel *);
 };
 
@@ -82,18 +105,33 @@ protected:
     bool isSharedLibrary(const std::string &path) const;
 
 public:
+    /**
+     * pointer to a kernel instance equipped with an appropriate deleter
+     */
+    using kernel_ptr = std::unique_ptr<model::Kernel, KernelDeleter>;
+    /**
+     * raw pointer to a kernel instance
+     */
+    using raw_kernel_ptr = model::Kernel*;
 
-    using kernel_ptr = std::unique_ptr<readdy::model::Kernel, KernelDeleter>;
-    using raw_kernel_ptr = readdy::model::Kernel*;
-
-    // prevent that copies can be created
+    /**
+     * no copying
+     */
     KernelProvider(KernelProvider const &) = delete;
 
-    // prevent that copies can be created
+    /**
+     * no copying
+     */
     KernelProvider &operator=(KernelProvider const &) = delete;
 
+    /**
+     * no move
+     */
     KernelProvider(KernelProvider &&) = delete;
 
+    /**
+     * no move
+     */
     KernelProvider &operator=(KernelProvider &&) = delete;
 
 
@@ -112,10 +150,17 @@ public:
     void loadKernelsFromDirectory(const std::string &directory);
 
     /**
-     * Sinking method that allows to move a kernel into the KernelProvider and thus make it available.
+     * Method that returns the currently available kernels. Output may change after a call
+     * to loadKernelsFromDirectory(directory).
      *
-     * @param kernel the kernel that should be moved
-     * @todo update docs
+     * @return the currently available kernels
+     */
+    std::vector<std::string> availableKernels() const;
+
+    /**
+     * Adds a kernel to the provider registry by providing a factory method and a name.
+     * @param name the name
+     * @param creator the factory method
      */
     void add(const std::string &name, const std::function<readdy::model::Kernel *()> &creator);
 
@@ -143,9 +188,19 @@ public:
      */
     static const std::string getDefaultKernelDirectory();
 
-    kernel_ptr create(const std::string &name) const;
+    /**
+     * Create a new kernel instance of specified name.
+     * @param name the kernel name
+     * @return a unique_ptr to the kernel instance, i.e., the caller has ownership
+     */
+    kernel_ptr create(std::string_view name) const;
 
 private:
+    /**
+     * loads the name of a kernel that resides in a shared library
+     * @param sharedLib the shared library
+     * @return the kernel name
+     */
     const std::string loadKernelName(const std::string &sharedLib);
 
     struct Impl;

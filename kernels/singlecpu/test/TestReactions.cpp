@@ -1,83 +1,82 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          *
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
 /**
- * << detailed description >>
- *
  * @file TestReactions.cpp
- * @brief << brief description >>
+ * @brief Testing of reactions specific to single CPU kernel
  * @author clonker
  * @date 22.06.16
  */
 
-#include <gtest/gtest.h>
+#include <catch2/catch.hpp>
+
 #include <readdy/model/Kernel.h>
 #include <readdy/plugin/KernelProvider.h>
 #include <readdy/model/actions/Actions.h>
 
-TEST(SingleCPUTestReactions, TestDecay) {
-    using fusion_t = readdy::model::reactions::Fusion;
-    using fission_t = readdy::model::reactions::Fission;
-    using enzymatic_t = readdy::model::reactions::Enzymatic;
-    using conversion_t = readdy::model::reactions::Conversion;
-    using death_t = readdy::model::reactions::Decay;
-    using particle_t = readdy::model::Particle;
+TEST_CASE("Test single cpu decay reactions", "[scpu]") {
     auto kernel = readdy::plugin::KernelProvider::getInstance().create("SingleCPU");
-    kernel->getKernelContext().setBoxSize(10, 10, 10);
-    kernel->getKernelContext().particle_types().add("X", .25, 1.);
-    kernel->registerReaction<death_t>("X decay", "X", 1);
-    kernel->registerReaction<fission_t>("X fission", "X", "X", "X", .5, .3);
+    kernel->context().boxSize() = {{10, 10, 10}};
+    kernel->context().particleTypes().add("X", .25);
+    kernel->context().reactions().addDecay("X decay", "X", 1e16);
+    kernel->context().reactions().addFission("X fission", "X", "X", "X", .5, .3);
 
     readdy::scalar timeStep = 1.0;
-    auto &&integrator = kernel->createAction<readdy::model::actions::EulerBDIntegrator>(timeStep);
-    auto &&forces = kernel->createAction<readdy::model::actions::CalculateForces>();
-    using update_nl = readdy::model::actions::UpdateNeighborList;
-    auto &&neighborList = kernel->createAction<readdy::model::actions::UpdateNeighborList>(update_nl::Operation::create, -1);
-    auto &&reactions = kernel->createAction<readdy::model::actions::reactions::UncontrolledApproximation>(timeStep);
+    auto &&integrator = kernel->actions().eulerBDIntegrator(timeStep);
+    auto &&forces = kernel->actions().calculateForces();
+    auto &&reactions = kernel->actions().uncontrolledApproximation(timeStep);
 
-    auto pp_obs = kernel->createObservable<readdy::model::observables::Positions>(1);
-    pp_obs->setCallback([](const readdy::model::observables::Positions::result_type &t) {
+    auto pp_obs = kernel->observe().positions(1);
+    pp_obs->callback() = [](const readdy::model::observables::Positions::result_type &t) {
         readdy::log::trace("got n particles={}", t.size());
-    });
+    };
     auto connection = kernel->connectObservable(pp_obs.get());
 
     const int n_particles = 200;
-    const auto typeId = kernel->getKernelContext().particle_types().id_of("X");
+    const auto typeId = kernel->context().particleTypes().idOf("X");
     std::vector<readdy::model::Particle> particlesToBeginWith{n_particles, {0, 0, 0, typeId}};
-    kernel->getKernelStateModel().addParticles(particlesToBeginWith);
-    kernel->getKernelContext().configure();
-    neighborList->perform();
+    kernel->stateModel().addParticles(particlesToBeginWith);
     for (size_t t = 0; t < 20; t++) {
-
         forces->perform();
         integrator->perform();
-        neighborList->perform();
         reactions->perform();
 
         kernel->evaluateObservables(t);
-
     }
 
-    EXPECT_EQ(0, kernel->getKernelStateModel().getParticlePositions().size());
+    REQUIRE(kernel->stateModel().getParticlePositions().empty());
 
     connection.disconnect();
 }
@@ -108,54 +107,52 @@ TEST(SingleCPUTestReactions, TestDecay) {
  *   - t = 2: n_particles == 1 with 1x A
  *   - t > 2: n_particles == 0
  */
-TEST(SingleCPUTestReactions, TestMultipleReactionTypes) {
-    using fusion_t = readdy::model::reactions::Fusion;
-    using fission_t = readdy::model::reactions::Fission;
-    using enzymatic_t = readdy::model::reactions::Enzymatic;
-    using conversion_t = readdy::model::reactions::Conversion;
-    using death_t = readdy::model::reactions::Decay;
+TEST_CASE("Test single cpu multiple reaction types", "[scpu]") {
     using particle_t = readdy::model::Particle;
     auto kernel = readdy::plugin::KernelProvider::getInstance().create("SingleCPU");
-    kernel->getKernelContext().setBoxSize(10, 10, 10);
+    kernel->context().boxSize() = {{10, 10, 10}};
 
-    kernel->getKernelContext().particle_types().add("A", .25, 1.);
-    kernel->getKernelContext().particle_types().add("B", .25, 1.);
-    kernel->getKernelContext().particle_types().add("C", .25, 1.);
-    kernel->getKernelContext().particle_types().add("D", .25, 1.);
-    kernel->getKernelContext().particle_types().add("E", .25, 1.);
+    kernel->context().particleTypes().add("A", .25);
+    kernel->context().particleTypes().add("B", .25);
+    kernel->context().particleTypes().add("C", .25);
+    kernel->context().particleTypes().add("D", .25);
+    kernel->context().particleTypes().add("E", .25);
 
-    kernel->registerReaction<death_t>("A decay", "A", 1);
-    kernel->registerReaction<fusion_t>("B+C->E", "B", "C", "E", 1, 17);
-    kernel->registerReaction<fusion_t>("B+D->A", "B", "D", "A", 1, 17);
-    kernel->registerReaction<conversion_t>("E->A", "E", "A", 1);
-    kernel->registerReaction<conversion_t>("C->D", "C", "D", 1);
+    kernel->context().reactions().addDecay("A decay", "A", 1e16);
+    kernel->context().reactions().addFusion("B+C->E", "B", "C", "E", 1e16, 17);
+    kernel->context().reactions().addFusion("B+D->A", "B", "D", "A", 1e16, 17);
+    kernel->context().reactions().addConversion("E->A", "E", "A", 1e16);
+    kernel->context().reactions().addConversion("C->D", "C", "D", 1e16);
 
-    auto &&integrator = kernel->createAction<readdy::model::actions::EulerBDIntegrator>(1);
-    auto &&forces = kernel->createAction<readdy::model::actions::CalculateForces>();
-    auto &&neighborList = kernel->createAction<readdy::model::actions::UpdateNeighborList>();
-    auto &&reactions = kernel->createAction<readdy::model::actions::reactions::UncontrolledApproximation>(1);
+    const auto maxCutoff = kernel->context().calculateMaxCutoff();
 
-    const auto typeId_A = kernel->getKernelContext().particle_types().id_of("A");
-    const auto typeId_B = kernel->getKernelContext().particle_types().id_of("B");
-    const auto typeId_C = kernel->getKernelContext().particle_types().id_of("C");
-    const auto typeId_D = kernel->getKernelContext().particle_types().id_of("D");
-    const auto typeId_E = kernel->getKernelContext().particle_types().id_of("E");
+    auto &&integrator = kernel->actions().eulerBDIntegrator(1);
+    auto &&forces = kernel->actions().calculateForces();
+    auto &&initNeighborList = kernel->actions().createNeighborList(maxCutoff);
+    auto &&neighborList = kernel->actions().updateNeighborList();
+    auto &&reactions = kernel->actions().uncontrolledApproximation(1);
 
-    kernel->getKernelStateModel().addParticle({4, 4, 4, typeId_A});
-    kernel->getKernelStateModel().addParticle({-2, 0, 0, typeId_B});
-    kernel->getKernelStateModel().addParticle({2, 0, 0, typeId_C});
+    const auto typeId_A = kernel->context().particleTypes().idOf("A");
+    const auto typeId_B = kernel->context().particleTypes().idOf("B");
+    const auto typeId_C = kernel->context().particleTypes().idOf("C");
+    const auto typeId_D = kernel->context().particleTypes().idOf("D");
+    const auto typeId_E = kernel->context().particleTypes().idOf("E");
 
-    auto pred_contains_A = [=](const readdy::model::Particle &p) { return p.getType() == typeId_A; };
-    auto pred_contains_B = [=](const readdy::model::Particle &p) { return p.getType() == typeId_B; };
-    auto pred_contains_C = [=](const readdy::model::Particle &p) { return p.getType() == typeId_C; };
-    auto pred_contains_D = [=](const readdy::model::Particle &p) { return p.getType() == typeId_D; };
-    auto pred_contains_E = [=](const readdy::model::Particle &p) { return p.getType() == typeId_E; };
+    kernel->stateModel().addParticle({4, 4, 4, typeId_A});
+    kernel->stateModel().addParticle({-2, 0, 0, typeId_B});
+    kernel->stateModel().addParticle({2, 0, 0, typeId_C});
 
-    kernel->getKernelContext().configure();
+    auto pred_contains_A = [=](const readdy::model::Particle &p) { return p.type() == typeId_A; };
+    auto pred_contains_B = [=](const readdy::model::Particle &p) { return p.type() == typeId_B; };
+    auto pred_contains_C = [=](const readdy::model::Particle &p) { return p.type() == typeId_C; };
+    auto pred_contains_D = [=](const readdy::model::Particle &p) { return p.type() == typeId_D; };
+    auto pred_contains_E = [=](const readdy::model::Particle &p) { return p.type() == typeId_E; };
+
+    initNeighborList->perform();
 
     for (unsigned int t = 0; t < 4; t++) {
 
-        const auto particles = kernel->getKernelStateModel().getParticles();
+        const auto particles = kernel->stateModel().getParticles();
 
         bool containsA = std::find_if(particles.begin(), particles.end(), pred_contains_A) != particles.end();
         bool containsB = std::find_if(particles.begin(), particles.end(), pred_contains_B) != particles.end();
@@ -165,31 +162,31 @@ TEST(SingleCPUTestReactions, TestMultipleReactionTypes) {
 
         switch (t) {
             case 0: {
-                EXPECT_EQ(3, particles.size());
-                EXPECT_TRUE(containsA);
-                EXPECT_TRUE(containsB);
-                EXPECT_TRUE(containsC);
+                REQUIRE(3 == particles.size());
+                REQUIRE(containsA);
+                REQUIRE(containsB);
+                REQUIRE(containsC);
                 break;
             }
             case 1: {
-                EXPECT_TRUE(particles.size() == 2 || particles.size() == 1);
+                REQUIRE((particles.size() == 2 || particles.size() == 1));
                 if (particles.size() == 2) {
-                    readdy::log::debug("------> conversion happened");
-                    EXPECT_TRUE(containsB);
-                    EXPECT_TRUE(containsD);
+                    INFO("------> conversion happened");
+                    REQUIRE(containsB);
+                    REQUIRE(containsD);
                 } else {
-                    readdy::log::debug("------> fusion happened");
-                    EXPECT_TRUE(containsE);
+                    INFO("------> fusion happened");
+                    REQUIRE(containsE);
                 }
                 break;
             }
             case 2: {
-                EXPECT_EQ(1, particles.size());
-                EXPECT_TRUE(containsA);
+                REQUIRE(1 == particles.size());
+                REQUIRE(containsA);
                 break;
             }
             case 3: {
-                EXPECT_EQ(0, particles.size());
+                REQUIRE(particles.empty());
                 break;
             }
             default: {

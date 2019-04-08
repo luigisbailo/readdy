@@ -1,38 +1,56 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          * 
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
 /**
- * << detailed description >>
+ * This header file contains:
+ *     * the `readdy::model::particle_flavor` type which takes values as defined in the `readdy::model::particleflavor`
+ *       namespace
+ *     * the definition of ParticleTypeInfo, backing structure for all particle types
+ *     * the definition of ParticleTypeRegistry, an object managing all particle types for a reaction diffusion system
  *
  * @file ParticleTypeRegistry.h
- * @brief << brief description >>
+ * @brief Header file containing definitions for particle flavors, particle type info and the particle type registry.
  * @author clonker
  * @date 29.03.17
- * @copyright GNU Lesser General Public License v3.0
+ * @copyright BSD-3
  */
 
 #pragma once
 
 #include <readdy/common/common.h>
+
 #include "Particle.h"
 
 NAMESPACE_BEGIN(readdy)
@@ -43,73 +61,123 @@ NAMESPACE_BEGIN(particleflavor)
 static constexpr particle_flavor NORMAL = 0;
 static constexpr particle_flavor TOPOLOGY = 1;
 static constexpr particle_flavor MEMBRANE = 2;
+
+inline static std::string particleFlavorToString(particle_flavor flavor) {
+    switch(flavor) {
+        case model::particleflavor::NORMAL: return "NORMAL";
+        case model::particleflavor::TOPOLOGY: return "TOPOLOGY";
+        case model::particleflavor::MEMBRANE: return "MEMBRANE";
+        default: return "UNKNOWN";
+    }
+}
 NAMESPACE_END(particleflavor)
 
 struct ParticleTypeInfo {
     std::string name;
     scalar diffusionConstant;
-    scalar radius;
     particle_flavor flavor;
-    particle_type_type typeId;
+    ParticleTypeId typeId;
 
-    ParticleTypeInfo(const std::string &name, scalar diffusionConstant, scalar radius,
+    ParticleTypeInfo(const std::string &name, scalar diffusionConstant,
                      particle_flavor flavor, Particle::type_type typeId);
 };
 
 class ParticleTypeRegistry {
 public:
 
-    using type_map = std::unordered_map<std::string, particle_type_type>;
+    using type_map = std::unordered_map<std::string, ParticleTypeId>;
 
     ParticleTypeRegistry() = default;
 
-    ParticleTypeRegistry(const ParticleTypeRegistry &) = delete;
+    ParticleTypeRegistry(const ParticleTypeRegistry &) = default;
 
-    ParticleTypeRegistry &operator=(const ParticleTypeRegistry &) = delete;
+    ParticleTypeRegistry &operator=(const ParticleTypeRegistry &) = default;
 
-    ParticleTypeRegistry(ParticleTypeRegistry &&) = delete;
+    ParticleTypeRegistry(ParticleTypeRegistry &&) = default;
 
-    ParticleTypeRegistry &operator=(ParticleTypeRegistry &&) = delete;
+    ParticleTypeRegistry &operator=(ParticleTypeRegistry &&) = default;
 
     ~ParticleTypeRegistry() = default;
 
-    particle_type_type id_of(const std::string &name) const;
+    ParticleTypeId idOf(const std::string &name) const {
+        return _idOf(name);
+    }
 
-    void add(const std::string &name, scalar diffusionConst, scalar radius,
-             particle_flavor flavor = particleflavor::NORMAL);
+    ParticleTypeId operator()(const std::string &name) const {
+        return idOf(name);
+    }
 
-    const ParticleTypeInfo &info_of(const std::string &name) const;
+    void add(const std::string &name, scalar diffusionConst, particle_flavor flavor = particleflavor::NORMAL);
 
-    const ParticleTypeInfo &info_of(Particle::type_type type) const;
+    void addTopologyType(const std::string &name, scalar diffusionConst) {
+        add(name, diffusionConst, particleflavor::TOPOLOGY);
+    }
 
-    scalar diffusion_constant_of(const std::string &particleType) const;
+    const ParticleTypeInfo &infoOf(const std::string &name) const {
+        return infoOf(_idOf(name));
+    }
 
-    scalar diffusion_constant_of(particle_type_type particleType) const;
+    const ParticleTypeInfo &infoOf(Particle::type_type type) const {
+        return particle_info_.at(type);
+    }
 
-    scalar radius_of(const std::string &type) const;
+    scalar diffusionConstantOf(const std::string &particleType) const {
+        return diffusionConstantOf(idOf(particleType));
+    }
 
-    scalar radius_of(particle_type_type type) const;
+    scalar& diffusionConstantOf(const std::string &particleType) {
+        return diffusionConstantOf(idOf(particleType));
+    }
 
-    const std::size_t &n_types() const;
+    scalar diffusionConstantOf(ParticleTypeId particleType) const {
+        return particle_info_.at(particleType).diffusionConstant;
+    }
 
-    std::vector<particle_type_type> types_flat() const;
+    scalar& diffusionConstantOf(ParticleTypeId particleType) {
+        return particle_info_.at(particleType).diffusionConstant;
+    }
 
-    std::string name_of(particle_type_type id) const;
+    const std::size_t &nTypes() const {
+        return n_types_;
+    }
 
-    const type_map &type_mapping() const;
+    std::vector<ParticleTypeId> typesFlat() const {
+        std::vector<ParticleTypeId> v;
+        std::transform(std::begin(type_mapping_), std::end(type_mapping_), std::back_inserter(v), [](const auto &e) {
+            return e.second;
+        });
+        return v;
+    }
 
-    void debug_output() const;
+    std::string nameOf(ParticleTypeId id) const {
+        auto it = std::find_if(std::begin(type_mapping_), std::end(type_mapping_), [id](const auto &e) {
+            return e.second == id;
+        });
+        return it == std::end(type_mapping_) ? "" : it->first;
+    }
 
-    void configure();
+    const type_map &typeMapping() const {
+        return type_mapping_;
+    }
+
+    std::string describe() const;
 
 private:
 
-    particle_type_type _id_of(const std::string& name) const;
+    ParticleTypeId _idOf(const std::string &name) const {
+        auto it = type_mapping_.find(name);
+        if (it == type_mapping_.end()) {
+            throw std::invalid_argument(
+                    fmt::format("Could not find type \"{}\", did you forget to register it before accessing it?", name)
+            );
+        }
+        return it->second;
+    }
 
     std::size_t n_types_ = 0;
-    particle_type_type type_counter_ = 0;
+    ParticleTypeId type_counter_ = 0;
     type_map type_mapping_ {};
-    std::unordered_map<particle_type_type, ParticleTypeInfo> particle_info_ {};
+    std::unordered_map<ParticleTypeId, ParticleTypeInfo> particle_info_ {};
 
 };
 

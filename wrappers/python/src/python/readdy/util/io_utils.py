@@ -1,23 +1,36 @@
 # coding=utf-8
 
-# Copyright © 2016 Computational Molecular Biology Group,
+# Copyright © 2018 Computational Molecular Biology Group,
 #                  Freie Universität Berlin (GER)
 #
-# This file is part of ReaDDy.
+# Redistribution and use in source and binary forms, with or
+# without modification, are permitted provided that the
+# following conditions are met:
+#  1. Redistributions of source code must retain the above
+#     copyright notice, this list of conditions and the
+#     following disclaimer.
+#  2. Redistributions in binary form must reproduce the above
+#     copyright notice, this list of conditions and the following
+#     disclaimer in the documentation and/or other materials
+#     provided with the distribution.
+#  3. Neither the name of the copyright holder nor the names of
+#     its contributors may be used to endorse or promote products
+#     derived from this software without specific
+#     prior written permission.
 #
-# ReaDDy is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of
-# the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General
-# Public License along with this program. If not, see
-# <http://www.gnu.org/licenses/>.
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+# CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+# INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+# STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
 Obtain information from a readdy output file, if it contains context info, such as
@@ -25,7 +38,8 @@ particle types and reactions. This module shall be standalone and thus not depen
 It shall only use the specification of the output objects.
 
 @author: chrisfroe
-@license: LGPL
+@author: clonker
+@license: BSD-3
 """
 
 import numpy as np
@@ -42,9 +56,49 @@ def get_particle_types(filename, dset_path="readdy/config/particle_types"):
     """
     result = dict()
     with h5py.File(filename, "r") as f:
-        p_types = f[dset_path]
-        for p_type in p_types:
-            result[p_type["name"]] = p_type["type_id"]
+        if dset_path in f:
+            p_types = f[dset_path]
+            for p_type in p_types:
+                result[p_type["name"]] = {
+                    "type_id": p_type["type_id"],
+                    "flavor": p_type["flavor"]
+                }
+    return result
+
+
+def get_topology_types(filename, dset_path="readdy/config/topology_types"):
+    """
+    Construct a dictionary from type strings to type-ids for the topology types used in the simulation that
+    created the output file.
+
+    :param filename: the readdy h5 file, containing context info
+    :param dset_path: path to the dataset within the h5 file
+    :return: dictionary that maps from type-string to type-id
+    """
+    result = dict()
+    with h5py.File(filename, "r") as f:
+        if dset_path in f:
+            topology_types = f[dset_path]
+            for t in topology_types:
+                name, type_id = t
+                result[name] = type_id
+    return result
+
+
+def get_particle_types_list(fname, dset_path="readdy/config/particle_types"):
+    """Construct a list of type strings for the particle types
+    used in the simulation that created the output file.
+
+    :param filename: the readdy h5 file, containing context info
+    :param dset_path: path to dataset within h5 file containing particle type info
+    :return: list of type strings
+    """
+    result = []
+    with h5py.File(fname, "r") as f:
+        if dset_path in f:
+            p_types = f[dset_path]
+            for p_type in p_types:
+                result.append(p_type["name"])
     return result
 
 
@@ -58,52 +112,24 @@ def get_diffusion_constants(filename, dset_path="readdy/config/particle_types"):
     """
     result = dict()
     with h5py.File(filename, "r") as f:
-        p_types = f[dset_path]
-        for p_type in p_types:
-            result[p_type["name"]] = p_type["diffusion_constant"]
+        if dset_path in f:
+            p_types = f[dset_path]
+            for p_type in p_types:
+                result[p_type["name"]] = p_type["diffusion_constant"]
     return result
 
 
-def get_reactions_order1(filename, group="readdy/config/registered_reactions"):
-    """Construct a list of first order reactions used in the simulation
-    that created the output file.
+def get_reactions(filename, dset_path="readdy/config/registered_reactions"):
+    """Construct a dictionary where keys are reaction names and value is the corresponding reaction info.
 
     :param filename: the readdy h5 file, containing context info
-    :param group: path to directory within h5 file containing reaction info datasets
-    :return: list of first order reactions
-    """
-    result = []
-    with h5py.File(filename, "r") as f:
-        reactions_dir = f[group]
-        order1_dset = reactions_dir["order1_reactions"]
-        for reaction in order1_dset:
-            result.append(np.copy(reaction))
-    return result
-
-
-def get_reactions_order2(filename, group="readdy/config/registered_reactions"):
-    """Construct a list of second order reactions used in the simulations
-    that created the output file.
-
-    :param filename: the readdy h5 file, containing context info
-    :param group: path to directory within h5 file containing reaction info datasets
-    :return: list of second order reactions
-    """
-    result = []
-    with h5py.File(filename, "r") as f:
-        reactions_dir = f[group]
-        order2_dset = reactions_dir["order2_reactions"]
-        for reaction in order2_dset:
-            result.append(np.copy(reaction))
-    return result
-
-
-def get_reactions(filename, group="readdy/config/registered_reactions"):
-    """Construct a flat list of first and second order reactions.
-
-    :param filename: the readdy h5 file, containing context info
-    :param group: path to directory within h5 file containing reaction info datasets
+    :param dset_path: path to reaction info dataset
     :return: list of reactions
     """
-    result = get_reactions_order1(filename, group=group) + get_reactions_order2(filename, group=group)
+    result = dict()
+    with h5py.File(filename, "r") as f:
+        if dset_path in f:
+            reactions = f[dset_path]
+            for r in reactions:
+                result[r["name"]] = np.copy(r)
     return result

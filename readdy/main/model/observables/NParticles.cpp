@@ -1,22 +1,35 @@
 /********************************************************************
- * Copyright © 2016 Computational Molecular Biology Group,          * 
+ * Copyright © 2018 Computational Molecular Biology Group,          *
  *                  Freie Universität Berlin (GER)                  *
  *                                                                  *
- * This file is part of ReaDDy.                                     *
+ * Redistribution and use in source and binary forms, with or       *
+ * without modification, are permitted provided that the            *
+ * following conditions are met:                                    *
+ *  1. Redistributions of source code must retain the above         *
+ *     copyright notice, this list of conditions and the            *
+ *     following disclaimer.                                        *
+ *  2. Redistributions in binary form must reproduce the above      *
+ *     copyright notice, this list of conditions and the following  *
+ *     disclaimer in the documentation and/or other materials       *
+ *     provided with the distribution.                              *
+ *  3. Neither the name of the copyright holder nor the names of    *
+ *     its contributors may be used to endorse or promote products  *
+ *     derived from this software without specific                  *
+ *     prior written permission.                                    *
  *                                                                  *
- * ReaDDy is free software: you can redistribute it and/or modify   *
- * it under the terms of the GNU Lesser General Public License as   *
- * published by the Free Software Foundation, either version 3 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU Lesser General Public License for more details.              *
- *                                                                  *
- * You should have received a copy of the GNU Lesser General        *
- * Public License along with this program. If not, see              *
- * <http://www.gnu.org/licenses/>.                                  *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND           *
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,      *
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF         *
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE         *
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR            *
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,     *
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,         *
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; *
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER *
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,      *
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)    *
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF      *
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                       *
  ********************************************************************/
 
 
@@ -27,12 +40,11 @@
  * @brief << brief description >>
  * @author clonker
  * @date 13.03.17
- * @copyright GNU Lesser General Public License v3.0
+ * @copyright BSD-3
  */
 
 #include <readdy/model/observables/NParticles.h>
 #include <readdy/model/Kernel.h>
-#include <readdy/io/DataSet.h>
 #include <readdy/model/observables/io/Types.h>
 #include <readdy/model/observables/io/TimeSeriesWriter.h>
 
@@ -40,37 +52,36 @@ namespace readdy {
 namespace model {
 namespace observables {
 
-NParticles::NParticles(Kernel *const kernel, unsigned int stride,
+NParticles::NParticles(Kernel *const kernel, stride_type stride,
                        std::vector<std::string> typesToCount)
         : NParticles(kernel, stride,
-                     _internal::util::transformTypes2(typesToCount, kernel->getKernelContext())) {
+                     _internal::util::transformTypes2(typesToCount, kernel->context())) {
 
 }
 
-NParticles::NParticles(Kernel *const kernel, unsigned int stride,
-                       std::vector<unsigned int> typesToCount)
+NParticles::NParticles(Kernel *const kernel, stride_type stride,
+                       std::vector<ParticleTypeId> typesToCount)
         : Observable(kernel, stride), typesToCount(std::move(typesToCount)), pimpl(std::make_unique<Impl>()) {
 }
 
 NParticles::~NParticles() = default;
 
 struct NParticles::Impl {
-    std::unique_ptr<io::DataSet> ds;
-    std::unique_ptr<util::TimeSeriesWriter> time;
+    std::unique_ptr<h5rd::DataSet> ds {nullptr};
+    std::unique_ptr<util::TimeSeriesWriter> time {nullptr};
+    io::BloscFilter bloscFilter {};
 };
 
-NParticles::NParticles(Kernel *const kernel, unsigned int stride)
+NParticles::NParticles(Kernel *const kernel, stride_type stride)
         : Observable(kernel, stride), pimpl(std::make_unique<Impl>()) {}
 
-void NParticles::initializeDataSet(io::File &file, const std::string &dataSetName, unsigned int flushStride) {
-    if (!pimpl->ds) {
-        const auto size = typesToCount.empty() ? 1 : typesToCount.size();
-        std::vector<readdy::io::h5::h5_dims> fs = {flushStride, size};
-        std::vector<readdy::io::h5::h5_dims> dims = {readdy::io::h5::UNLIMITED_DIMS, size};
-        auto group = file.createGroup(std::string(util::OBSERVABLES_GROUP_PATH) + "/" + dataSetName);
-        pimpl->ds = std::make_unique<io::DataSet>(group.createDataSet<std::size_t>("data", fs, dims));
-        pimpl->time = std::make_unique<util::TimeSeriesWriter>(group, flushStride);
-    }
+void NParticles::initializeDataSet(File &file, const std::string &dataSetName, stride_type flushStride) {
+    const auto size = typesToCount.empty() ? 1 : typesToCount.size();
+    h5rd::dimensions fs = {flushStride, size};
+    h5rd::dimensions dims = {h5rd::UNLIMITED_DIMS, size};
+    auto group = file.createGroup(std::string(util::OBSERVABLES_GROUP_PATH) + "/" + dataSetName);
+    pimpl->ds = group.createDataSet<std::size_t>("data", fs, dims, {&pimpl->bloscFilter});
+    pimpl->time = std::make_unique<util::TimeSeriesWriter>(group, flushStride);
 }
 
 void NParticles::append() {
@@ -81,6 +92,10 @@ void NParticles::append() {
 void NParticles::flush() {
     if (pimpl->ds) pimpl->ds->flush();
     if(pimpl->time) pimpl->time->flush();
+}
+
+std::string NParticles::type() const {
+    return "NParticles";
 }
 }
 }
