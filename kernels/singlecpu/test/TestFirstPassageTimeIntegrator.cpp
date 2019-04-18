@@ -49,6 +49,10 @@
 #include <readdy/kernel/singlecpu/actions/SCPUMdgfrdIntegrator.h>
 
 TEST_CASE("Test single cpu MDGFRD", "[scpu]") {
+    //@todo testcase1: check effective diffusion
+    //@todo testcase2: check domains don't overlap, a length equal to the reaction radius should be left between domains
+    //@todo testcase3: exit time should always be larger than the state time
+
     auto kernel = readdy::plugin::KernelProvider::getInstance().create("SingleCPU");
     kernel->context().boxSize() = {{10, 10, 10}};
     kernel->context().particleTypes().add("X", .25);
