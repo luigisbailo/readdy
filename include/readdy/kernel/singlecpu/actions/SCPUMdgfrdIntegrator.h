@@ -67,6 +67,9 @@ struct MdgfrdSpeciesData {
 class SCPUMdgfrdIntegrator : public readdy::model::actions::MdgfrdIntegrator {
 public:
 
+    //todo: when observables are computed all domains are burst
+    //      or this action should take the stride value and burst all particles at that time
+
     SCPUMdgfrdIntegrator(SCPUKernel *kernel, scalar timeStep)
             : readdy::model::actions::MdgfrdIntegrator(timeStep), kernel(kernel) {
         const auto &context = kernel->context();
